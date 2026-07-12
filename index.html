@@ -85,6 +85,8 @@
   const outStatus=$("#outStatus"), srcStatus=$("#srcStatus"), perf=$("#perf");
   const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const print = html => { outEl.innerHTML = html; };
+  // Tier-2 is opt-in (URL ?tier2 or window.__NIFI_TIER2); Tier-1 is unchanged.
+  const TIER2 = /[?&]tier2\b/.test(location.search) || window.__NIFI_TIER2 === true;
 
   (window.EXAMPLES||[]).forEach((ex,i)=>{const o=document.createElement("option");o.value=i;o.textContent=ex.name;exSel.appendChild(o);});
   function loadExample(i){
@@ -98,7 +100,9 @@
   async function run(){
     const ex=window.EXAMPLES[+exSel.value];
     if(!window.NifiEngine || !window.NifiEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
-    runBtn.disabled=true; outStatus.textContent="running…"; print('<span class="sys">running…</span>');
+    // Tier 2 recompiles from the editor buffer before running; show that phase.
+    const busyLabel = TIER2 ? "compiling…" : "running…";
+    runBtn.disabled=true; outStatus.textContent=busyLabel; print('<span class="sys">'+busyLabel+'</span>');
     const t0=performance.now();
     try{
       const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), example: ex });
@@ -123,6 +127,15 @@
   // engine + lsp readiness hooks (called by engine.js / worker glue)
   window.__nifiEngineReady=(ok,detail)=>{ engineTag.textContent="engine: "+(ok?"ready":"unavailable"); engineTag.className="tag"+(ok?" ok":""); runBtn.disabled=!ok; if(!ok&&detail) print('<span class="err">'+esc(detail)+'</span>'); };
   window.__nifiLspStatus=(state)=>{ lspTag.style.display=""; lspTag.textContent="lsp: "+state; lspTag.className="tag"+(state==="live"?" ok":state==="off"?"":" warn"); };
+
+  // Tier-2 compile-on-type status. srcStatus shows a distinct "checking…" state
+  // (vs the output pane's "running…"/"compiling…") driven by editor.js's debounce.
+  window.__nifiCompiling=(on)=>{ srcStatus.textContent = on ? "checking…" : "checked ✓"; };
+  // In Tier-2 the precompiled example is only a seed — any edit means Run must
+  // recompile, so mark the source stale as soon as the user types.
+  if(TIER2 && window.NifiEditor.onChange){
+    window.NifiEditor.onChange(()=>{ srcStatus.textContent="modified — Run recompiles"; });
+  }
 
   // editor ready -> load first example
   window.NifiEditor.onReady(()=>{ if(window.EXAMPLES&&window.EXAMPLES.length) loadExample(0); });

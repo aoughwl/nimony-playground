@@ -49,6 +49,66 @@
   // Exposed so index.html / future glue can call the interpreter directly.
   window.NifiCore = { runSnif };
 
+  // ── Tier 2/3: worker-backed compile+run ────────────────────────────────
+  // GATED. The default live app stays Tier 1 (precompiled, no worker). Tier 2
+  // turns on only with ?tier2 in the URL or window.__NIFI_TIER2 === true, so
+  // this new path can never regress the shipped experience.
+  const TIER2 = (typeof location !== "undefined" && /[?&]tier2\b/.test(location.search))
+             || (window.__NIFI_TIER2 === true);
+
+  let worker = null, seq = 0;
+  const pending = new Map();           // id -> {resolve, reject}
+
+  function ensureWorker(){
+    if(worker) return worker;
+    worker = new Worker("worker.js");
+    worker.onmessage = (e) => {
+      const m = e.data || {};
+      if(m.type === "ready"){
+        engine.tier = 2;
+        if(window.__nifiLspStatus) window.__nifiLspStatus("live");
+        return;
+      }
+      // Correlate by id; unknown/stale ids are dropped silently.
+      const p = pending.get(m.id);
+      if(!p) return;
+      pending.delete(m.id);
+      p.resolve(m);
+    };
+    worker.onerror = (e) => {
+      const err = new Error("worker error: " + (e && e.message || "unknown"));
+      pending.forEach(p => p.reject(err));
+      pending.clear();
+    };
+    // Kick the handshake (worker also announces ready unsolicited).
+    worker.postMessage({ type:"ready?" });
+    return worker;
+  }
+
+  function post(type, src){
+    const w = ensureWorker();
+    const id = ++seq;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      w.postMessage({ type, id, src });
+    });
+  }
+
+  if(TIER2){
+    // The single typeof-guard in run() below now routes through the worker.
+    window.NifiCore.compileAndRun = async (src) => {
+      const m = await post("run", src);
+      return { stdout: m.stdout || "", stderr: m.stderr || "", exitCode: m.exit | 0 };
+    };
+    // Diagnostics channel used by editor.js's debounce.
+    window.NifiCore.compile = async (src) => {
+      const m = await post("compile", src);
+      return m.diagnostics || [];
+    };
+    // Spawn eagerly so readiness (-> lsp: live) shows without a first Run.
+    ensureWorker();
+  }
+
   async function run(req){
     await loadBundle();
     // Tier 2 hook: when the frontend is ported, compile the editor buffer live.
@@ -66,7 +126,9 @@
   loadBundle().then(() => {
     engine.ready = true;
     if(window.__nifiEngineReady) window.__nifiEngineReady(true);
-    if(window.__nifiLspStatus) window.__nifiLspStatus("off");
+    // Tier 1: no live language service. Tier 2: the worker flips this to "live"
+    // when it reports ready, so don't stomp it here.
+    if(window.__nifiLspStatus && !TIER2) window.__nifiLspStatus("off");
   }).catch(e => {
     engine.ready = false;
     if(window.__nifiEngineReady) window.__nifiEngineReady(false, String(e && e.message || e));

@@ -56,10 +56,18 @@
 
   function fireReady(){ readyCbs.splice(0).forEach(f=>{ try{f();}catch(_){}}); }
 
+  // ── change subscription (used by the Tier-2 debounced diagnostics) ────────
+  const changeCbs = [];
+  function fireChange(){
+    const v = window.NifiEditor.getValue();
+    changeCbs.forEach(cb=>{ try{ cb(v); }catch(_){} });
+  }
+
   function startFallback(){
     usingFallback = true;
     editorEl.style.display = "none";
     fallbackEl.style.display = "block";
+    fallbackEl.addEventListener("input", fireChange);
     fireReady();
   }
 
@@ -81,6 +89,7 @@
             fontSize:13, minimap:{enabled:false}, automaticLayout:true,
             scrollBeyondLastLine:false, tabSize:2, insertSpaces:true, renderWhitespace:"none",
           });
+          editor.onDidChangeModelContent(fireChange);
           fireReady();
         });
       }catch(_){ startFallback(); }
@@ -93,6 +102,8 @@
     getValue(){ return usingFallback ? fallbackEl.value : (editor ? editor.getValue() : ""); },
     setTheme(t){ if(!usingFallback && monacoRef) monacoRef.editor.setTheme(t==="light"?"nimony-light":"nimony-dark"); },
     onReady(cb){ if(usingFallback || editor) cb(); else readyCbs.push(cb); },
+    // Subscribe to editor content changes (fires for Monaco + textarea fallback).
+    onChange(cb){ if(typeof cb === "function") changeCbs.push(cb); },
     // Called by the LSP-in-worker glue (Tier 3). markers: [{line,col,endLine,endCol,message,severity}]
     setDiagnostics(markers){
       if(usingFallback || !monacoRef || !editor) return;
@@ -104,6 +115,33 @@
       })));
     }
   };
+
+  // ── Tier-2 debounced compile-on-type -> diagnostics ───────────────────────
+  // Trailing debounce: after typing settles, ask the worker (via
+  // NifiCore.compile) to type-check and paint markers. Stale results are dropped
+  // by a monotonically increasing version. Tier-1 (no NifiCore.compile) is a
+  // no-op, and setDiagnostics itself is already guarded in the textarea path.
+  const DEBOUNCE_MS = 350;
+  let diagVersion = 0, diagTimer = null;
+  function scheduleDiagnostics(){
+    const NC = window.NifiCore;
+    if(!NC || typeof NC.compile !== "function") return; // Tier 1: nothing to do
+    clearTimeout(diagTimer);
+    diagTimer = setTimeout(() => {
+      const version = ++diagVersion;
+      const src = window.NifiEditor.getValue();
+      if(window.__nifiCompiling) window.__nifiCompiling(true);
+      NC.compile(src).then(markers => {
+        if(version !== diagVersion) return;            // stale — a newer edit won
+        window.NifiEditor.setDiagnostics(markers || []);
+        if(window.__nifiCompiling) window.__nifiCompiling(false);
+      }).catch(() => {
+        if(version !== diagVersion) return;
+        if(window.__nifiCompiling) window.__nifiCompiling(false);
+      });
+    }, DEBOUNCE_MS);
+  }
+  changeCbs.push(scheduleDiagnostics);
 
   bootMonaco();
 })();
