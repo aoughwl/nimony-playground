@@ -1,0 +1,11 @@
+(.nif27)
+(.indexat 496              )
+(stmts@,1,../.claude/jobs/8d47d301/tmp/final/src/hello.nim
+ (import
+  (kv sysvq0asl "../nimony/lib/std/system.nim")
+  (kv syn1lfpjv "../nimony/lib/std/syncio.nim"))
+ (stmts@2,7a,../nimony/lib/std/syncio.nim
+  (stmts@2,2
+   (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "hello from nimony - running in your browser"@5,3,../.claude/jobs/8d47d301/tmp/final/src/hello.nim))
+  (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E))
+ (comment@,2 echo.0.syn1lfpjv))(.index@,1,../.claude/jobs/8d47d301/tmp/final/src/hello.nim)
