@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nimony playground — runs in your browser</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161922; --panel2:#1b1f2a; --border:#272c39;
+    --fg:#e6e9ef; --muted:#9aa3b2; --accent:#6ea8fe; --accent2:#3ddc97;
+    --err:#ff6b6b; --warn:#ffcc66; --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --border:#dfe3ea;
+    --fg:#1b1f2a; --muted:#5b6472; --accent:#2f6fed; --accent2:#12a06a; --err:#d63b3b;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
+  header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.2px}
+  header h1 .dot{color:var(--accent2)}
+  header .tag{font-size:11px;color:var(--muted);border:1px solid var(--border);padding:2px 8px;border-radius:999px}
+  header .tag.ok{color:var(--accent2);border-color:var(--accent2)}
+  header .tag.warn{color:var(--warn);border-color:var(--warn)}
+  header .spacer{flex:1}
+  select,button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+  button.run{background:var(--accent);color:#08111f;border-color:transparent;font-weight:650}
+  button.run:disabled{opacity:.5;cursor:progress}
+  button:hover{border-color:var(--accent)}
+  main{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+  @media(max-width:820px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
+  .pane{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .pane+.pane{border-left:1px solid var(--border)}
+  @media(max-width:820px){.pane+.pane{border-left:none;border-top:1px solid var(--border)}}
+  .pane .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);display:flex;align-items:center;gap:8px}
+  .pane .label .status{margin-left:auto;font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0}
+  #editor{flex:1;min-height:0}
+  textarea#fallback{flex:1;resize:none;border:0;outline:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6;padding:14px;tab-size:2;display:none}
+  #out{flex:1;margin:0;overflow:auto;padding:14px;font-family:var(--mono);font-size:13px;line-height:1.55;white-space:pre-wrap;color:var(--fg)}
+  #out .sys{color:var(--muted)} #out .err{color:var(--err)} #out .ok{color:var(--accent2)}
+  footer{border-top:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:12px;padding:8px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  footer .badge{color:var(--accent2)}
+  kbd{font-family:var(--mono);font-size:11px;background:var(--panel2);border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:1px 5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>nimony<span class="dot">·</span>playground</h1>
+  <span class="tag" id="engineTag">engine: loading…</span>
+  <span class="tag" id="lspTag" style="display:none">lsp: off</span>
+  <div class="spacer"></div>
+  <select id="examples" title="Load an example"></select>
+  <button class="run" id="runBtn" disabled>▶ Run <kbd>⌃⏎</kbd></button>
+  <button id="themeBtn" title="Toggle theme">◐</button>
+</header>
+
+<main>
+  <section class="pane">
+    <div class="label">nimony source <span class="status" id="srcStatus"></span></div>
+    <div id="editor"></div>
+    <textarea id="fallback" spellcheck="false"></textarea>
+  </section>
+  <section class="pane">
+    <div class="label">output <span class="status" id="outStatus"></span></div>
+    <pre id="out"><span class="sys">Pick an example and press Run. The interpreter runs entirely in your browser — no server ever sees or executes your code.</span></pre>
+  </section>
+</main>
+
+<footer>
+  <span class="badge">● 100% client-side</span>
+  <span>The nimony interpreter (<code>nifi</code>) is compiled to JavaScript and runs in this tab. No backend.</span>
+  <div style="flex:1"></div>
+  <span id="perf"></span>
+</footer>
+
+<script src="examples.js"></script>
+<script src="engine.js"></script>
+<script src="editor.js"></script>
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const outEl=$("#out"), runBtn=$("#runBtn"), exSel=$("#examples");
+  const engineTag=$("#engineTag"), lspTag=$("#lspTag");
+  const outStatus=$("#outStatus"), srcStatus=$("#srcStatus"), perf=$("#perf");
+  const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const print = html => { outEl.innerHTML = html; };
+
+  (window.EXAMPLES||[]).forEach((ex,i)=>{const o=document.createElement("option");o.value=i;o.textContent=ex.name;exSel.appendChild(o);});
+  function loadExample(i){
+    const ex=window.EXAMPLES[i]; if(!ex) return;
+    window.NifiEditor.setValue(ex.source);
+    srcStatus.textContent = ex.snif ? "runnable" : "compile on run";
+    print('<span class="sys">Ready — press Run.</span>');
+  }
+  exSel.addEventListener("change",()=>loadExample(+exSel.value));
+
+  async function run(){
+    const ex=window.EXAMPLES[+exSel.value];
+    if(!window.NifiEngine || !window.NifiEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
+    runBtn.disabled=true; outStatus.textContent="running…"; print('<span class="sys">running…</span>');
+    const t0=performance.now();
+    try{
+      const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), example: ex });
+      const ms=(performance.now()-t0).toFixed(1);
+      let html=esc(res.stdout||"");
+      if(res.stderr) html+='\n<span class="err">'+esc(res.stderr)+'</span>';
+      html+='\n<span class="ok">— exit '+(res.exitCode|0)+' · '+ms+' ms</span>';
+      print(html||'<span class="sys">(no output)</span>'); perf.textContent=ms+" ms";
+    }catch(e){ print('<span class="err">'+esc(e&&e.message||e)+'</span>'); }
+    finally{ runBtn.disabled=false; outStatus.textContent=""; }
+  }
+  runBtn.addEventListener("click",run);
+  document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key==="Enter"){e.preventDefault();run();}});
+
+  $("#themeBtn").addEventListener("click",()=>{
+    const r=document.documentElement, t=r.getAttribute("data-theme")==="dark"?"light":"dark";
+    r.setAttribute("data-theme",t); window.NifiEditor.setTheme(t);
+    try{localStorage.setItem("np-theme",t);}catch(_){}
+  });
+  try{const t=localStorage.getItem("np-theme"); if(t) document.documentElement.setAttribute("data-theme",t);}catch(_){}
+
+  // engine + lsp readiness hooks (called by engine.js / worker glue)
+  window.__nifiEngineReady=(ok,detail)=>{ engineTag.textContent="engine: "+(ok?"ready":"unavailable"); engineTag.className="tag"+(ok?" ok":""); runBtn.disabled=!ok; if(!ok&&detail) print('<span class="err">'+esc(detail)+'</span>'); };
+  window.__nifiLspStatus=(state)=>{ lspTag.style.display=""; lspTag.textContent="lsp: "+state; lspTag.className="tag"+(state==="live"?" ok":state==="off"?"":" warn"); };
+
+  // editor ready -> load first example
+  window.NifiEditor.onReady(()=>{ if(window.EXAMPLES&&window.EXAMPLES.length) loadExample(0); });
+  if(window.NifiEngine&&window.NifiEngine.ready) window.__nifiEngineReady(true);
+})();
+</script>
+</body>
+</html>
