@@ -1,6 +1,6 @@
 (.nif27)
-(.indexat 2598             )
-(stmts@,1,../.claude/jobs/8d47d301/tmp/final/src/fib.nim
+(.indexat 2611             )
+(stmts@,1,../.claude/jobs/8d47d301/tmp/fib.nim
  (import
   (kv sysvq0asl "../nimony/lib/std/system.nim")
   (kv syn1lfpjv "../nimony/lib/std/syncio.nim"))
@@ -36,12 +36,12 @@
   (stmts~2,1
    (stmts@2,7a,../nimony/lib/std/syncio.nim
     (stmts@2,2
-     (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6
-      (infix@J,8,../.claude/jobs/8d47d301/tmp/final/src/fib.nim &.0.sysvq0asl
-       (infix~9 &.0.sysvq0asl
-        (prefix~3 $.1.sysvq0asl i.0@1)" -> "@2)
-       (prefix@2 $.1.sysvq0asl
-        (call@4 fib.1.~3 i.0@1)))))
+     (cmd write.2.syn1lfpjv stdout.0.syn1lfpjv@6 i.0@7,8,../.claude/jobs/8d47d301/tmp/fib.nim))
+    (stmts@2,2
+     (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 " -> "@A,8,../.claude/jobs/8d47d301/tmp/fib.nim))
+    (stmts@2,2
+     (cmd write.2.syn1lfpjv stdout.0.syn1lfpjv@6
+      (call@L,8,../.claude/jobs/8d47d301/tmp/fib.nim fib.1.~3 i.0@1)))
     (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E))))
  (comment@C,2 int.0.sysvq0asl int.0.sysvq0asl~2 echo.0.syn1lfpjv~A,5)
  (iterator@A,6 :\2E..0.Ibdympw. . .@,7,../nimony/lib/std/system/iterators.nim
@@ -57,7 +57,7 @@
    (inline@2)).@,7,../nimony/lib/std/system/iterators.nim
   (stmts@2,8,../nimony/lib/std/system/iterators.nim
    (var@4 :i.1 . .
-    (i@C,3,../.claude/jobs/8d47d301/tmp/final/src/fib.nim 64)a.1@4)
+    (i@C,3,../.claude/jobs/8d47d301/tmp/fib.nim 64)a.1@4)
    (while@,1
     (le@8
      (i 64)i.1~2 b.1@3)
@@ -67,21 +67,21 @@
       (haddr@4 i.1))))))
  (func@4,B,../nimony/lib/std/system/iterators.nim :inc.1.Irn1g7r1. . .@,E,../nimony/lib/std/system/arithmetics.nim
   (at inc.1.sysvq0asl
-   (i@C,3,../.claude/jobs/8d47d301/tmp/final/src/fib.nim 64))
+   (i@C,3,../.claude/jobs/8d47d301/tmp/fib.nim 64))
   (params@L,E,../nimony/lib/std/system/arithmetics.nim
    (param@1 :x.1 . .
     (mut@3
-     (i@C,3,../.claude/jobs/8d47d301/tmp/final/src/fib.nim 64)).)).@,E,../nimony/lib/std/system/arithmetics.nim
+     (i@C,3,../.claude/jobs/8d47d301/tmp/fib.nim 64)).)).@,E,../nimony/lib/std/system/arithmetics.nim
   (pragmas@W,E,../nimony/lib/std/system/arithmetics.nim
    (inline@2)).@,E,../nimony/lib/std/system/arithmetics.nim
   (stmts@2,F,../nimony/lib/std/system/arithmetics.nim
    (asgn@2,1
     (hderef~2 x.1)
     (add@6
-     (i@C,3,../.claude/jobs/8d47d301/tmp/final/src/fib.nim 64)
+     (i@C,3,../.claude/jobs/8d47d301/tmp/fib.nim 64)
      (hderef@1 x.1)
      (conv@U,~F
-      (i@C,3,../.claude/jobs/8d47d301/tmp/final/src/fib.nim 64)1@1))))))(.index@,1,../.claude/jobs/8d47d301/tmp/final/src/fib.nim
- (h fib.1. 200)
- (h \2E..0.Ibdympw. 988)
- (h inc.1.Irn1g7r1. 627))
+      (i@C,3,../.claude/jobs/8d47d301/tmp/fib.nim 64)1@1))))))(.index@,1,../.claude/jobs/8d47d301/tmp/fib.nim
+ (h fib.1. 190)
+ (h \2E..0.Ibdympw. 1061)
+ (h inc.1.Irn1g7r1. 617))

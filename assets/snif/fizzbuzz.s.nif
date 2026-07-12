@@ -1,6 +1,6 @@
 (.nif27)
-(.indexat 2902             )
-(stmts@,1,../.claude/jobs/8d47d301/tmp/final/src/fizzbuzz.nim
+(.indexat 2818             )
+(stmts@,1,../.claude/jobs/8d47d301/tmp/fizzbuzz.nim
  (import
   (kv sysvq0asl "../nimony/lib/std/system.nim")
   (kv syn1lfpjv "../nimony/lib/std/syncio.nim"))
@@ -19,7 +19,7 @@
      (stmts@F
       (stmts@2,7a,../nimony/lib/std/syncio.nim
        (stmts@2,2
-        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "FizzBuzz"@P,4,../.claude/jobs/8d47d301/tmp/final/src/fizzbuzz.nim))
+        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "FizzBuzz"@P,4,../.claude/jobs/8d47d301/tmp/fizzbuzz.nim))
        (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E))))
     (elif@5,1
      (eq@8
@@ -29,7 +29,7 @@
      (stmts@E
       (stmts@2,7a,../nimony/lib/std/syncio.nim
        (stmts@2,2
-        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "Fizz"@Q,5,../.claude/jobs/8d47d301/tmp/final/src/fizzbuzz.nim))
+        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "Fizz"@Q,5,../.claude/jobs/8d47d301/tmp/fizzbuzz.nim))
        (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E))))
     (elif@5,2
      (eq@8
@@ -39,14 +39,13 @@
      (stmts@E
       (stmts@2,7a,../nimony/lib/std/syncio.nim
        (stmts@2,2
-        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "Buzz"@Q,6,../.claude/jobs/8d47d301/tmp/final/src/fizzbuzz.nim))
+        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "Buzz"@Q,6,../.claude/jobs/8d47d301/tmp/fizzbuzz.nim))
        (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E))))
     (else@,3
      (stmts@6
       (stmts@2,7a,../nimony/lib/std/syncio.nim
        (stmts@2,2
-        (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6
-         (prefix@D,7,../.claude/jobs/8d47d301/tmp/final/src/fizzbuzz.nim $.1.sysvq0asl i.0@1)))
+        (cmd write.2.syn1lfpjv stdout.0.syn1lfpjv@6 i.0@D,7,../.claude/jobs/8d47d301/tmp/fizzbuzz.nim))
        (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E)))))))
  (comment@K,3 echo.0.syn1lfpjv echo.0.syn1lfpjv@1,1 echo.0.syn1lfpjv@1,2 echo.0.syn1lfpjv~C,3)
  (iterator@A,2 :\2E..0.Ibdympw. . .@,7,../nimony/lib/std/system/iterators.nim
@@ -86,6 +85,6 @@
      (i 64)
      (hderef@1 x.1)
      (conv@U,~F
-      (i 64)1@1))))))(.index@,1,../.claude/jobs/8d47d301/tmp/final/src/fizzbuzz.nim
- (h \2E..0.Ibdympw. 1747)
+      (i 64)1@1))))))(.index@,1,../.claude/jobs/8d47d301/tmp/fizzbuzz.nim
+ (h \2E..0.Ibdympw. 1663)
  (h inc.1.Irn1g7r1. 576))

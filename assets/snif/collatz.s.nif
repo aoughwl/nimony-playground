@@ -1,6 +1,6 @@
 (.nif27)
-(.indexat 3052             )
-(stmts@,1,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim
+(.indexat 3138             )
+(stmts@,1,../.claude/jobs/8d47d301/tmp/collatz.nim
  (import
   (kv sysvq0asl "../nimony/lib/std/system.nim")
   (kv syn1lfpjv "../nimony/lib/std/syncio.nim"))
@@ -19,7 +19,7 @@
     (expr@2,1l,../nimony/lib/std/system/comparisons.nim
      (not@,1
       (eq@7
-       (i 64)n.0@8,6,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim 1@D,6,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim)))
+       (i 64)n.0@8,6,../.claude/jobs/8d47d301/tmp/collatz.nim 1@D,6,../.claude/jobs/8d47d301/tmp/collatz.nim)))
     (stmts@2,1
      (if
       (elif@3
@@ -49,13 +49,14 @@
   (stmts~2,1
    (stmts@2,7a,../nimony/lib/std/syncio.nim
     (stmts@2,2
-     (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6
-      (infix@T,C,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim &.0.sysvq0asl
-       (infix~C &.0.sysvq0asl
-        (infix~7 &.0.sysvq0asl
-         (prefix~3 $.1.sysvq0asl n.1@1)"\3A "@2)
-        (prefix@2 $.1.sysvq0asl
-         (call@6 steps.0.~5 n.1@1)))" steps"@2)))
+     (cmd write.2.syn1lfpjv stdout.0.syn1lfpjv@6 n.1@7,C,../.claude/jobs/8d47d301/tmp/collatz.nim))
+    (stmts@2,2
+     (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 "\3A "@A,C,../.claude/jobs/8d47d301/tmp/collatz.nim))
+    (stmts@2,2
+     (cmd write.2.syn1lfpjv stdout.0.syn1lfpjv@6
+      (call@L,C,../.claude/jobs/8d47d301/tmp/collatz.nim steps.0.~5 n.1@1)))
+    (stmts@2,2
+     (cmd write.0.syn1lfpjv stdout.0.syn1lfpjv@6 " steps"@Q,C,../.claude/jobs/8d47d301/tmp/collatz.nim))
     (cmd@,3 write.7.syn1lfpjv stdout.0.syn1lfpjv@6 '\0A'@E))))
  (comment@F,2 int.0.sysvq0asl int.0.sysvq0asl~4 !=.0.sysvq0asl~5,3 echo.0.syn1lfpjv~D,9)
  (func@4,8 :inc.1.Irn1g7r1. . .@,E,../nimony/lib/std/system/arithmetics.nim
@@ -64,17 +65,17 @@
   (params@L,E,../nimony/lib/std/system/arithmetics.nim
    (param@1 :x.1 . .
     (mut@3
-     (i@F,3,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim 64)).)).@,E,../nimony/lib/std/system/arithmetics.nim
+     (i@F,3,../.claude/jobs/8d47d301/tmp/collatz.nim 64)).)).@,E,../nimony/lib/std/system/arithmetics.nim
   (pragmas@W,E,../nimony/lib/std/system/arithmetics.nim
    (inline@2)).@,E,../nimony/lib/std/system/arithmetics.nim
   (stmts@2,F,../nimony/lib/std/system/arithmetics.nim
    (asgn@2,1
     (hderef~2 x.1)
     (add@6
-     (i@F,3,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim 64)
+     (i@F,3,../.claude/jobs/8d47d301/tmp/collatz.nim 64)
      (hderef@1 x.1)
      (conv@U,~F
-      (i@F,3,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim 64)1@1)))))
+      (i@F,3,../.claude/jobs/8d47d301/tmp/collatz.nim 64)1@1)))))
  (iterator@A,A :\2E..0.Ibdympw. . .@,7,../nimony/lib/std/system/iterators.nim
   (at \2E..0.sysvq0asl
    (i 64))
@@ -88,14 +89,14 @@
    (inline@2)).@,7,../nimony/lib/std/system/iterators.nim
   (stmts@2,8,../nimony/lib/std/system/iterators.nim
    (var@4 :i.0 . .
-    (i@F,3,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim 64)a.1@4)
+    (i@F,3,../.claude/jobs/8d47d301/tmp/collatz.nim 64)a.1@4)
    (while@,1
     (le@8
      (i 64)i.0~2 b.1@3)
     (stmts@2,1
      (yld i.0@6)
      (cmd@,1 inc.1.Irn1g7r1.
-      (haddr@4 i.0)))))))(.index@,1,../.claude/jobs/8d47d301/tmp/final/src/collatz.nim
- (h steps.0. 204)
- (h inc.1.Irn1g7r1. 1507)
- (h \2E..0.Ibdympw. 709))
+      (haddr@4 i.0)))))))(.index@,1,../.claude/jobs/8d47d301/tmp/collatz.nim
+ (h steps.0. 194)
+ (h inc.1.Irn1g7r1. 1643)
+ (h \2E..0.Ibdympw. 679))
