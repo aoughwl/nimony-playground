@@ -1,136 +1,88 @@
-// engine.js — the client-side execution seam.
+// engine.js — the client-side execution seam (now a thin worker client).
 //
-// The nimony interpreter `nifi` is compiled to JavaScript by aoughwl/nimony-web
-// (bundle: nifi.js). We drive it exactly like the Node harness does, but in-tab:
-//
-//   IN : globalThis.__nifi_src  = the .s.nif bytes (byte-exact string)
-//   RUN: (new Function(bundle + "main(0,[]);"))()      // fresh scope per run
-//   OUT: globalThis.__nifi_out / __nifi_err / __nifi_exit
-//
-// A fresh `new Function` scope per run is deliberate: the bundle has top-level
-// declarations that can't be redeclared in one global scope, and a fresh scope
-// also gives each run clean interpreter state.
-//
-// Tier 1 (today): runs an example's PRE-COMPILED .s.nif — fully client-side,
-// no backend. Tier 2 (frontend ported to JS) will compile whatever is in the
-// editor; then window.NifiCore.compileAndRun takes over transparently.
+// Live compile+run: source → nifparser (.p.nif, main thread) → nimsem (.s.nif)
+// → nifi (run). The last two stages run in the Web Worker owned by pipeline.js,
+// so a long or infinite run never blocks the UI and can be stopped by killing
+// the worker. This file only orchestrates: it parses on the main thread (fast,
+// and it feeds the synchronous LSP index anyway), gates imports, and hands the
+// `.p.nif` to the worker.
 (function(){
-  const engine = { ready:false, tier:1, run:null };
-  let bundleText = null;
+  const engine = { tier:2, run:null };
 
-  async function loadBundle(){
-    if(bundleText) return bundleText;
-    const r = await fetch("nifi.js");
-    if(!r.ok) throw new Error("failed to load interpreter (nifi.js): HTTP " + r.status);
-    bundleText = await r.text();
-    return bundleText;
+  // Modules pre-semchecked into the browser stdlib closure. Importing anything
+  // NOT here is reported up front (a clean diagnostic) instead of letting nimsem
+  // quit mid-compile trying to open a module it can't find.
+  const BUNDLED = new Set(["algorithm","appdirs","assertions","atomics","base64",
+    "bitops","cmdline","complex","cpuinfo","deques","dirs","editdistance","encodings",
+    "envvars","fenv","formatfloat","hashes","heapqueue","intsets","ioring","json",
+    "lexbase","locks","macros","math","md5","memfiles","monotimes","nativesocket",
+    "nifply","opt","options","os","oserrors","osproc","parfor","parsejson","parseopt",
+    "parseutils","pathnorm","paths","random","rawthreads","result","rlocks","sequtils",
+    "sets","setutils","sha1","streams","strtabs","strutils","syncio","system","tables",
+    "terminal","threadpool","ticketlocks","times","unicode","varints","widestrs",
+    "wordwrap","writenif"]);
+
+  // Expand a `from`/`import` spec into module paths, handling nimony's bracket
+  // sugar `pkg/[a, b, c]` as well as a plain comma list `a, b, c`.
+  function importedModules(spec){
+    const mods = [];
+    const br = /^(.*?)\[([^\]]*)\]\s*$/.exec(spec);
+    if(br){
+      const prefix = br[1].trim().replace(/\s*\/\s*/g,"/");
+      for(const raw of br[2].split(",")){ const item = raw.trim().replace(/\s*\/\s*/g,"/"); if(item) mods.push(prefix + item); }
+    } else {
+      for(const raw of spec.split(",")){ const mod = raw.trim().replace(/\s*\/\s*/g,"/"); if(mod) mods.push(mod); }
+    }
+    return mods;
   }
-
-  // Byte-exact fetch: .s.nif is a NIF byte stream; decode 1:1 (latin1), never UTF-8.
-  async function fetchSnifBytes(name){
-    const r = await fetch("assets/snif/" + name);
-    if(!r.ok) throw new Error("missing bytecode asset: " + name + " (HTTP " + r.status + ")");
-    const buf = new Uint8Array(await r.arrayBuffer());
-    let s = "";
-    for(let i = 0; i < buf.length; i++) s += String.fromCharCode(buf[i]);
-    return s;
-  }
-
-  function runSnif(bytes){
-    globalThis.__nifi_src = bytes;
-    globalThis.__nifi_out = ""; globalThis.__nifi_err = ""; globalThis.__nifi_exit = 0;
-    (new Function(bundleText + "\nmain(0, []);"))();
-    return {
-      stdout: globalThis.__nifi_out || "",
-      stderr: globalThis.__nifi_err || "",
-      exitCode: globalThis.__nifi_exit | 0
-    };
-  }
-  // Exposed so index.html / future glue can call the interpreter directly.
-  window.NifiCore = { runSnif };
-
-  // ── Tier 2/3: worker-backed compile+run ────────────────────────────────
-  // GATED. The default live app stays Tier 1 (precompiled, no worker). Tier 2
-  // turns on only with ?tier2 in the URL or window.__NIFI_TIER2 === true, so
-  // this new path can never regress the shipped experience.
-  const TIER2 = (typeof location !== "undefined" && /[?&]tier2\b/.test(location.search))
-             || (window.__NIFI_TIER2 === true);
-
-  let worker = null, seq = 0;
-  const pending = new Map();           // id -> {resolve, reject}
-
-  function ensureWorker(){
-    if(worker) return worker;
-    worker = new Worker("worker.js");
-    worker.onmessage = (e) => {
-      const m = e.data || {};
-      if(m.type === "ready"){
-        engine.tier = 2;
-        if(window.__nifiLspStatus) window.__nifiLspStatus("live");
-        return;
+  function checkImports(source){
+    const out = [], lines = String(source).split("\n");
+    for(let i=0;i<lines.length;i++){
+      const m = /^\s*(?:import|from)\s+(.+?)\s*$/.exec(lines[i]);
+      if(!m) continue;
+      const spec = m[1].split("#")[0].replace(/\bimport\b.*$/,"").replace(/\bexcept\b.*$/,"").replace(/\bas\b.*$/,"");
+      for(const mod of importedModules(spec)){
+        const base = mod.split("/").pop();
+        if(!BUNDLED.has(base)){
+          const col = (lines[i].indexOf(base)+1) || 1;
+          out.push({ line:i+1, col, severity:"error",
+            message:'module "'+mod+'" is not in the browser stdlib closure yet (type-checkable: the nimony std library)' });
+        }
       }
-      // Correlate by id; unknown/stale ids are dropped silently.
-      const p = pending.get(m.id);
-      if(!p) return;
-      pending.delete(m.id);
-      p.resolve(m);
-    };
-    worker.onerror = (e) => {
-      const err = new Error("worker error: " + (e && e.message || "unknown"));
-      pending.forEach(p => p.reject(err));
-      pending.clear();
-    };
-    // Kick the handshake (worker also announces ready unsolicited).
-    worker.postMessage({ type:"ready?" });
-    return worker;
+    }
+    return out;
   }
 
-  function post(type, src){
-    const w = ensureWorker();
-    const id = ++seq;
-    return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      w.postMessage({ type, id, src });
-    });
+  // Live compile the editor buffer and run it in the worker. Same
+  // {stdout,stderr,exitCode,diags} shape as before. Returns a Promise.
+  async function compileAndRun(source, stdin){
+    if(!(window.NifiParser && window.NifiParser.ready))
+      return { stdout:"", stderr:"parser still loading…", exitCode:1 };
+    if(!(window.NifiPipe && window.NifiPipe.ready))
+      return { stdout:"", stderr:"semantic checker still loading…", exitCode:1 };
+    const badImports = checkImports(source);
+    if(badImports.length)
+      return { stdout:"", stderr:"unavailable import:\n"+badImports.map(b=>"  "+b.line+":"+b.col+"  "+b.message).join("\n"),
+               exitCode:1, diags:badImports };
+    // 1. parse → .p.nif on the main thread (syntax diagnostics surfaced elsewhere)
+    const { nif, diags: synDiags } = window.NifiParser.parseFull(source, "in.nim");
+    if(synDiags && synDiags.length)
+      return { stdout:"", stderr:"syntax error: "+synDiags[0].message+" (line "+synDiags[0].line+")", exitCode:1 };
+    // 2+3. semcheck (worker, cached) + run (worker)
+    const m = await window.NifiPipe.run(nif, stdin);
+    if(!m.snif && m.ranSem){
+      const msg = (m.diags && m.diags.length)
+        ? m.diags.map(d=>"  "+d.line+":"+d.col+"  "+d.message).join("\n")
+        : "the program did not type-check.";
+      return { stdout:"", stderr:"semantic error:\n"+msg, exitCode:1, diags:m.diags||[] };
+    }
+    return { stdout:m.stdout||"", stderr:m.stderr||"", exitCode:m.exitCode|0, diags:m.diags||[], engine:m.engine, oom:!!m.oom };
   }
 
-  if(TIER2){
-    // The single typeof-guard in run() below now routes through the worker.
-    window.NifiCore.compileAndRun = async (src) => {
-      const m = await post("run", src);
-      return { stdout: m.stdout || "", stderr: m.stderr || "", exitCode: m.exit | 0 };
-    };
-    // Diagnostics channel used by editor.js's debounce.
-    window.NifiCore.compile = async (src) => {
-      const m = await post("compile", src);
-      return m.diagnostics || [];
-    };
-    // Spawn eagerly so readiness (-> lsp: live) shows without a first Run.
-    ensureWorker();
-  }
+  window.NifiCore = { compileAndRun, checkImports };
 
-  async function run(req){
-    await loadBundle();
-    // Tier 2 hook: when the frontend is ported, compile the editor buffer live.
-    if(window.NifiCore && typeof window.NifiCore.compileAndRun === "function")
-      return window.NifiCore.compileAndRun(req.source);
-    const ex = req.example;
-    if(!ex || !ex.snif)
-      return { stdout:"", stderr:"This example has no pre-compiled bytecode yet.", exitCode:1 };
-    return runSnif(await fetchSnifBytes(ex.snif));
-  }
-
-  engine.run = run;
+  // req: { source, stdin }. Returns Promise<{stdout,stderr,exitCode}>.
+  engine.run = (req) => compileAndRun(req.source, req.stdin);
+  Object.defineProperty(engine, "ready", { get: () => !!(window.NifiPipe && window.NifiPipe.ready) });
   window.NifiEngine = engine;
-
-  loadBundle().then(() => {
-    engine.ready = true;
-    if(window.__nifiEngineReady) window.__nifiEngineReady(true);
-    // Tier 1: no live language service. Tier 2: the worker flips this to "live"
-    // when it reports ready, so don't stomp it here.
-    if(window.__nifiLspStatus && !TIER2) window.__nifiLspStatus("off");
-  }).catch(e => {
-    engine.ready = false;
-    if(window.__nifiEngineReady) window.__nifiEngineReady(false, String(e && e.message || e));
-  });
 })();

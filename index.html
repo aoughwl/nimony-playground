@@ -4,141 +4,1170 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nimony playground — runs in your browser</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="shortcut icon" href="/favicon.ico">
+<script>
+// Resolve the theme BEFORE first paint (no flash). Precedence:
+//   1. an explicit playground choice (np-theme: light | dark | black)
+//   2. otherwise mirror the aoughwl docs site — SAME ORIGIN, shared localStorage.
+//      The site stores aoughwl-theme ('dark'/'light', default dark); we map its
+//      'dark' onto our TRUE-DARK ('black') so navigating docs → playground doesn't
+//      jump to the blue "dark" theme. If no site pref is stored, we still match it
+//      when we arrived from the docs (referrer); a direct visit keeps our blue dark.
+(function(){
+  try{
+    var THEMES=["light","dark","black"];
+    var t=localStorage.getItem("np-theme");
+    if(THEMES.indexOf(t)<0){
+      var s=localStorage.getItem("aoughwl-theme");
+      if(s==="light") t="light";
+      else if(s==="dark") t="black";
+      else{
+        var ref=document.referrer||"";
+        var fromDocs = ref.indexOf(location.origin)===0 &&
+                       ref.indexOf(location.origin+"/playground")<0 && ref!==location.href;
+        t = fromDocs ? "black" : "dark";
+      }
+    }
+    document.documentElement.setAttribute("data-theme", t);
+  }catch(e){ document.documentElement.setAttribute("data-theme","dark"); }
+})();
+</script>
 <style>
   :root{
     --bg:#0f1115; --panel:#161922; --panel2:#1b1f2a; --border:#272c39;
     --fg:#e6e9ef; --muted:#9aa3b2; --accent:#6ea8fe; --accent2:#3ddc97;
-    --err:#ff6b6b; --warn:#ffcc66; --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --err:#ff6b6b; --warn:#ffcc66;
+    --brace:#c792ea; --brace-bg:rgba(199,146,234,.16);
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
   }
   :root[data-theme="light"]{
     --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --border:#dfe3ea;
     --fg:#1b1f2a; --muted:#5b6472; --accent:#2f6fed; --accent2:#12a06a; --err:#d63b3b;
+    --brace:#8b5cf6; --brace-bg:rgba(139,92,246,.12);
+  }
+  /* "true dark" — mirrors the aoughwl docs site's near-black dark scheme, so
+     arriving from the docs (same domain) doesn't jump to the blue dark theme. */
+  :root[data-theme="black"]{
+    --bg:#0a0a0b; --panel:#121214; --panel2:#17171b; --border:#232327;
+    --fg:#ededf0; --muted:#8b8b93; --accent:#5ea1fb; --accent2:#3ddc97;
+    --err:#ff6b6b; --warn:#ffcc66;
+    --brace:#c792ea; --brace-bg:rgba(199,146,234,.16);
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
-  header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
-  header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.2px}
-  header h1 .dot{color:var(--accent2)}
-  header .tag{font-size:11px;color:var(--muted);border:1px solid var(--border);padding:2px 8px;border-radius:999px}
-  header .tag.ok{color:var(--accent2);border-color:var(--accent2)}
-  header .tag.warn{color:var(--warn);border-color:var(--warn)}
-  header .spacer{flex:1}
-  select,button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
-  button.run{background:var(--accent);color:#08111f;border-color:transparent;font-weight:650}
-  button.run:disabled{opacity:.5;cursor:progress}
-  button:hover{border-color:var(--accent)}
-  main{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
-  @media(max-width:820px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
+
+  /* ---- header: left brand + status, right edge-to-edge segmented actions ---- */
+  header{display:flex;align-items:stretch;min-height:42px;border-bottom:1px solid var(--border);background:var(--panel)}
+  .brand{display:flex;align-items:center;gap:11px;padding-left:15px;flex:none}
+  /* the aoughwl wordmark, rendered as a currentColor mask so it themes itself
+     (white glyph PNG -> alpha mask); sized a touch larger than the product name. */
+  /* color is pinned to --fg so the currentColor mask never picks up the default
+     link colour (the logo IS a link now, to the docs). */
+  .brand .logo{display:block;width:92px;height:21px;flex:none;color:var(--fg);background:currentColor;opacity:.95;
+    text-decoration:none;transition:opacity .15s;
+    -webkit-mask:url(../assets/aoughwl-logo-white.png) left center/contain no-repeat;
+            mask:url(../assets/aoughwl-logo-white.png) left center/contain no-repeat}
+  .brand a.logo:hover{opacity:1}
+  .brand h1{font-size:15px;margin:0;letter-spacing:.2px;white-space:nowrap;font-weight:400}
+  .brand h1 .np-nimony{font-weight:650}
+  /* "playground" reads as the quieter half — lighter + faded */
+  .brand h1 .np-pg{font-weight:400;opacity:.55}
+  .brand h1 .dot{opacity:.4;padding:0 2px}
+
+  /* one combined status line: a single state dot + a middot-joined summary */
+  .statusline{display:flex;align-items:center;gap:7px;padding-left:18px;font-size:11.5px;color:var(--muted);white-space:nowrap;cursor:default}
+  .statusline .sdot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex:none;transition:background .2s}
+  .statusline.ok .sdot{background:var(--accent2)}
+  .statusline.warn .sdot{background:var(--warn)}
+  .statusline.err .sdot{background:var(--err)}
+
+  .spacer{flex:1}
+  .actions{display:flex;align-items:stretch;flex:none}
+  .actions button{border:0;border-left:1px solid var(--border);border-radius:0;margin:0;
+    background:transparent;color:var(--fg);cursor:pointer;font:inherit;
+    display:inline-flex;align-items:center;gap:7px;padding:0 15px}
+  .actions button svg{width:16px;height:16px;display:block}
+  .actions button:hover{background:var(--panel2)}
+  .actions button:disabled{opacity:.5;cursor:progress}
+  .actions button.curly.on{color:var(--brace);background:var(--brace-bg)}
+  .actions button.copied{color:var(--accent2)}
+  .actions button.run{background:var(--accent);color:#fff;font-weight:650;border-left-color:transparent;padding:0 17px}
+  .actions button.run:hover{filter:brightness(1.08);background:var(--accent)}
+  .actions button.run:disabled{filter:none}
+  /* errors present → Run is refused: greyed with a red cast, not the accent CTA */
+  .actions button.run.stopmode{background:var(--err);color:#fff;cursor:pointer;opacity:1}
+  .actions button.run.stopmode:hover{filter:brightness(1.08);background:var(--err)}
+  .actions button.run.blocked{background:var(--panel2);color:var(--err);cursor:not-allowed;opacity:1}
+  .actions button.run.blocked:hover{filter:none;background:var(--panel2)}
+  .actions button.run.blocked kbd{background:transparent;border-color:var(--border);border-bottom-color:var(--border);color:var(--muted)}
+  .actions button.run kbd{background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.42);
+    border-bottom-width:2px;border-bottom-color:rgba(255,255,255,.6);color:#fff;padding:0 5px;
+    font-family:var(--mono);font-size:11px;border-radius:5px;line-height:1.5}
+
+  /* resizable split: --split is the source pane's size. A draggable #gutter
+     updates it; the layout button (now in the OUTPUT header) flips orientation
+     or hides the output entirely; a floating button restores it. */
+  main{flex:1;display:flex;min-height:0;--split:50%}
+  main[data-layout="cols"]{flex-direction:row}
+  main[data-layout="rows"]{flex-direction:column}
+  main[data-layout="cols"]>.pane.src,main[data-layout="rows"]>.pane.src{flex:0 0 var(--split)}
+  main>.pane.out{flex:1 1 0}
+  /* collapse/expand is animated via flex-grow + opacity (NOT display:none) so the
+     output glides open/shut. Solo keeps the source pane's basis and just grows it
+     to fill while the output shrinks to nothing and goes inert. */
+  .pane,#gutter{transition:flex-grow .26s ease,flex-basis .26s ease,opacity .2s ease}
+  /* while dragging the gutter we rewrite --split every pointermove; the flex
+     transition above would then animate toward each frame's target, so the panes
+     visibly lag behind the cursor. Kill the transition for the duration of the drag
+     (and Monaco relayouts live) — snappy resize, animation only for open/close. */
+  main.resizing .pane,main.resizing #gutter{transition:none}
+  .pane.out{overflow:hidden}
+  /* hiding keeps the current data-layout (cols/rows) so flex-direction — and thus
+     the collapse AXIS — is preserved: horizontal shrink when side-by-side,
+     vertical when stacked. `out-hidden` just collapses the output pane. */
+  main.out-hidden>.pane.src{flex:1 1 var(--split)}
+  main.out-hidden>.pane.out{flex:0 0 0;opacity:0;pointer-events:none}
+  main.out-hidden>#gutter{flex-basis:0;opacity:0;pointer-events:none}
   .pane{display:flex;flex-direction:column;min-width:0;min-height:0}
-  .pane+.pane{border-left:1px solid var(--border)}
-  @media(max-width:820px){.pane+.pane{border-left:none;border-top:1px solid var(--border)}}
-  .pane .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);display:flex;align-items:center;gap:8px}
+  /* container-type lets the source label respond to the PANE's width (e.g. when
+     the split gutter shrinks the editor), not just the viewport — see @container. */
+  .pane.src{position:relative;container-type:inline-size;container-name:srcpane}
+  #gutter{flex:0 0 6px;background:var(--border);position:relative;z-index:2;touch-action:none}
+  main[data-layout="cols"]>#gutter{cursor:col-resize}
+  main[data-layout="rows"]>#gutter{cursor:row-resize}
+  #gutter:hover,#gutter.drag{background:var(--accent)}
+
+  .pane .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 10px 8px 14px;border-bottom:1px solid var(--border);background:var(--panel);display:flex;align-items:center;gap:8px}
   .pane .label .status{margin-left:auto;font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0}
+  /* the SOURCE label now carries a tab bar (Source / Parsed / Typed / Run) on the
+     left, mirroring the output pane, with the combined status line + type-check
+     timing pushed to the right. */
+  .pane.src .label{position:relative;padding:6px 10px 6px 12px;gap:10px}
+  .pane.src .label #statusLine{margin-left:auto;padding-left:0;text-transform:none;letter-spacing:0}
+  .pane.src .label #semStatus{margin-left:0}
+  @container srcpane (max-width:680px){ .pane.src .label #statusLine{display:none} }
+  @container srcpane (max-width:520px){ .pane.src .label #semStatus{display:none} }
+  /* the right-pane views are mutually exclusive; only the active one shows.
+     The SOURCE pane uses the same idea (.sview) — its tabs flip between the live
+     editor and the three NIF rungs (parsed / typed / run). */
+  .view,.sview{display:none;flex:1;min-height:0;flex-direction:column}
+  .view.active,.sview.active{display:flex;animation:viewIn .18s ease}
+  @keyframes viewIn{from{opacity:0}to{opacity:1}}
+  .srcbody{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
   #editor{flex:1;min-height:0}
   textarea#fallback{flex:1;resize:none;border:0;outline:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6;padding:14px;tab-size:2;display:none}
-  #out{flex:1;margin:0;overflow:auto;padding:14px;font-family:var(--mono);font-size:13px;line-height:1.55;white-space:pre-wrap;color:var(--fg)}
-  #out .sys{color:var(--muted)} #out .err{color:var(--err)} #out .ok{color:var(--accent2)}
+  #out,.nifview{flex:1;margin:0;overflow:auto;padding:14px;font-family:var(--mono);font-size:13px;line-height:1.55;white-space:pre-wrap;color:var(--fg)}
+  /* word-wrap toggle: `nowrap` on <main> switches the output/NIF panes from
+     wrapping ("collapse") to a single long line with horizontal scroll ("overflow"). */
+  main.nowrap #out,main.nowrap .nifview{white-space:pre}
+  #out .sys,.nifview .sys{color:var(--muted)} #out .err,.nifview .err{color:var(--err)} #out .ok{color:var(--accent2)}
+  .nifview code{background:var(--panel2);border-radius:4px;padding:0 4px}
+  /* ---- NIF syntax presentation: structured, not a wall of text. Every token is
+     wrapped in a span so the form reads as a tree — but the container is still a
+     <pre> with user-select:text, so it copies as plain NIF. ---- */
+  .nifview .nt-tag{color:var(--accent);font-weight:600}          /* (tag …        */
+  .nifview .nt-dir{color:var(--brace);font-weight:600}           /* (.directive   */
+  .nifview .nt-par{color:var(--muted);opacity:.65}               /* ( )           */
+  .nifview .nt-sym{color:var(--fg)}                              /* a symbol name */
+  .nifview .nt-scope{color:var(--muted);opacity:.6}             /* .0.Ihash scope suffix */
+  .nifview .nt-num{color:var(--warn)}                            /* 42            */
+  .nifview .nt-str{color:var(--accent2)}                         /* "text"        */
+  .nifview .nt-info{color:var(--muted);opacity:.5;font-size:.9em} /* @col,line,file / ~rel site keys */
+  .nifview .nt-nil{color:var(--muted);opacity:.7}               /* a bare .       */
+  .nifview .nt-meta{color:var(--muted);display:block;margin-top:10px;opacity:.8}
+  /* subtle depth banding on the outermost parens keeps deep nesting readable */
+  .nifview .nt-d0{color:var(--accent)} .nifview .nt-d1{color:var(--brace)}
+  .nifview .nt-d2{color:var(--accent2)} .nifview .nt-d3{color:var(--warn)}
+  /* selection policy: chrome is not selectable; the code output IS (so users can
+     copy results/NIF). Monaco manages its own selection and is left untouched. */
+  header,footer,.pane .label,.tabs,#symList,.fab,.actions,.statusline,.brand,#tooltip{
+    -webkit-user-select:none;user-select:none}
+  #out,.nifview{-webkit-user-select:text;user-select:text}
+  /* tabs sit on the LEFT of the output header; the icon buttons are pushed right */
+  .tabs{display:flex;gap:2px}
+  .pane.out .label #outStatus{margin-left:8px}
+  .pane.out .label #stdinBtn{margin-left:auto}
+  .tabs button{font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:3px 10px;border-radius:6px;background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;font-family:inherit}
+  .tabs button.active{color:var(--fg);background:var(--panel2);border-color:var(--border)}
+  /* small icon button living in a pane header (the layout toggle) */
+  .paneBtn{background:transparent;border:0;padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center}
+  .paneBtn:hover{color:var(--fg);background:var(--panel2)}
+  .paneBtn.on{color:var(--accent);background:var(--panel2)}
+  .paneBtn svg{width:15px;height:15px;display:block}
+  /* stdin input bar, pinned to the bottom of the Output view */
+  #stdinBar{display:none;flex:none;gap:9px;align-items:flex-start;padding:7px 12px;border-top:1px solid var(--border);background:var(--panel)}
+  #stdinBar.show{display:flex}
+  #stdinBar .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding-top:7px;flex:none}
+  #stdinBox{flex:1;min-height:42px;max-height:150px;resize:vertical;background:var(--bg);color:var(--fg);
+    border:1px solid var(--border);border-radius:6px;padding:6px 9px;font-family:var(--mono);font-size:12.5px;line-height:1.5;outline:none}
+  #stdinBox:focus{border-color:var(--accent)}
+  #stdinBox::placeholder{color:var(--muted);opacity:.7}
+  /* floating "show output" button, bottom-right of the editor when collapsed */
+  .fab{position:absolute;right:26px;bottom:13px;z-index:5;background:var(--panel2);color:var(--fg);
+    border:1px solid var(--border);border-radius:9px;padding:8px 10px;cursor:pointer;
+    display:inline-flex;align-items:center;box-shadow:0 3px 14px rgba(0,0,0,.32);
+    /* hidden state is INSTANT (no fade-out) — transition:none here; the fade-in
+       lives on .show below so it only animates on the way in. */
+    opacity:0;visibility:hidden;transition:none}
+  .fab.show{opacity:1;visibility:visible;
+    /* wait a beat, then fade in quick; ease-in (slow → quick). */
+    transition:opacity .2s cubic-bezier(.4,0,1,1) .24s}
+  .fab:hover{border-color:var(--accent);color:var(--accent)}
+  .fab svg{width:17px;height:17px;display:block}
+
+  /* Symbols / outline panel */
+  #symList{flex:1;min-height:0;overflow:auto;padding:8px 6px;font-family:var(--mono);font-size:12.5px}
+  .sym{display:flex;align-items:baseline;gap:8px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+  .sym:hover{background:var(--panel2)}
+  .sym.child{margin-left:16px;font-size:12px}
+  .sym .k{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);min-width:58px}
+  .sym.child .k{color:var(--muted)}
+  .sym .nm{color:var(--fg)} .sym .dt{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+  #symEmpty{color:var(--muted);padding:14px}
+  /* live problems list in the output pane */
+  .prob{display:flex;gap:8px;padding:2px 0;cursor:pointer} .prob:hover{background:var(--panel2);border-radius:4px}
+  .prob .loc{color:var(--muted);min-width:52px} .prob.warn .loc{color:var(--warn)}
+  /* themed scrollbars for the panels */
+  #out,.nifview,#symList,#editor{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  #out::-webkit-scrollbar,.nifview::-webkit-scrollbar,#symList::-webkit-scrollbar{width:10px;height:10px}
+  #out::-webkit-scrollbar-track,.nifview::-webkit-scrollbar-track,#symList::-webkit-scrollbar-track{background:transparent}
+  #out::-webkit-scrollbar-thumb,.nifview::-webkit-scrollbar-thumb,#symList::-webkit-scrollbar-thumb{
+    background:var(--border);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+  #out::-webkit-scrollbar-thumb:hover,.nifview::-webkit-scrollbar-thumb:hover,#symList::-webkit-scrollbar-thumb:hover{
+    background:var(--muted);background-clip:padding-box}
+  #out::-webkit-scrollbar-corner,.nifview::-webkit-scrollbar-corner,#symList::-webkit-scrollbar-corner{background:transparent}
   footer{border-top:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:12px;padding:8px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
   footer .badge{color:var(--accent2)}
+  footer .ftxt{color:var(--muted)}
+  footer a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--border)}
+  footer a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+  footer a code{font-family:var(--mono)}
   kbd{font-family:var(--mono);font-size:11px;background:var(--panel2);border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:1px 5px}
+
+  /* ---- custom tooltips (for nav buttons + non-Monaco chrome) ---- */
+  #tooltip{position:fixed;z-index:1000;pointer-events:none;background:var(--panel2);color:var(--fg);
+    border:1px solid var(--border);border-radius:7px;padding:5px 9px;font-size:12px;line-height:1.35;
+    max-width:250px;box-shadow:0 5px 18px rgba(0,0,0,.35);opacity:0;transform:translateY(-3px);
+    transition:opacity .12s ease,transform .12s ease}
+  #tooltip.show{opacity:1;transform:translateY(0)}
+
+  /* ---- custom right-click context menu (Monaco-flavoured, site-wide) ---- */
+  #ctxmenu{position:fixed;z-index:1100;min-width:180px;padding:4px;background:var(--panel2);
+    border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.45);
+    font-size:13px;-webkit-user-select:none;user-select:none;display:none}
+  #ctxmenu.show{display:block}
+  #ctxmenu .item{display:flex;align-items:center;gap:14px;padding:5px 10px;border-radius:5px;
+    color:var(--fg);cursor:pointer;white-space:nowrap}
+  #ctxmenu .item:hover{background:var(--accent);color:#fff}
+  #ctxmenu .item.disabled{color:var(--muted);cursor:default;pointer-events:none;opacity:.6}
+  #ctxmenu .item .kb{margin-left:auto;font-size:11px;color:var(--muted)}
+  #ctxmenu .item:hover .kb{color:rgba(255,255,255,.75)}
+  #ctxmenu .sep{height:1px;margin:4px 6px;background:var(--border)}
+
+  /* Monaco's F1 Command Palette (quick-input) lives in the light DOM — it ships
+     with the stock vs-dark look (gray rows, gray "inactive selection", Monaco's
+     own input chrome). Re-skin the whole widget to our panels: our sans UI font,
+     our surfaces, an accent-filled active row, and kbd-style chips. Everything is
+     scoped to .quick-input-widget so it can't leak into the editor itself. */
+  .quick-input-widget{background:var(--panel2)!important;border:1px solid var(--border)!important;
+    border-radius:10px!important;box-shadow:0 16px 48px rgba(0,0,0,.55)!important;padding:8px!important;
+    margin-top:10px!important;   /* float off the very top edge of the editor */
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important}
+  .quick-input-widget .quick-input-header{padding-bottom:8px!important}
+  /* the search input — ONLY .monaco-inputbox is the field. Flatten Monaco's
+     wrapper boxes (.quick-input-box / -filter / -and-message) so the input isn't
+     framed twice (a box-in-a-box). */
+  .quick-input-box,.quick-input-filter,.quick-input-and-message{
+    background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+  .quick-input-box .monaco-inputbox{background:var(--bg)!important;border:1px solid var(--border)!important;
+    border-radius:8px!important;box-shadow:none!important}
+  .quick-input-box .monaco-inputbox.idle{border-color:var(--border)!important}
+  .quick-input-box .monaco-inputbox:focus-within{border-color:var(--accent)!important;
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)!important}
+  .quick-input-box .monaco-inputbox>.ibwrapper>.input,
+  .quick-input-box .monaco-inputbox .input,.quick-input-box input{color:var(--fg)!important;
+    background:transparent!important;font-family:inherit!important;font-size:13.5px!important;
+    line-height:22px!important;padding:5px 4px!important}
+  .quick-input-box .monaco-inputbox .input::placeholder,
+  .quick-input-box input::placeholder{color:var(--muted)!important;opacity:1!important}
+  .quick-input-titlebar,.quick-input-widget .quick-input-title{color:var(--fg)!important;font-weight:600!important}
+  .quick-input-message{color:var(--muted)!important;font-size:12px!important}
+  /* the list. Rows are transparent, so the "nasty gray on unselected rows" in the
+     dark themes was actually the LIST CONTAINERS showing Monaco's theme gray
+     through them. Transparent every container so unselected rows reveal OUR panel,
+     and pad the list itself (the rows' parent) so the block isn't flush to the
+     widget edge — the row padding alone couldn't do that. */
+  .quick-input-list,.quick-input-list .monaco-list,.quick-input-list .monaco-list-rows,
+  .quick-input-list .monaco-scrollable-element{background:transparent!important}
+  .quick-input-list{margin-top:4px!important;padding:2px!important}
+  .quick-input-list .monaco-list-row{border-radius:6px!important;color:var(--fg)!important;
+    padding:2px 8px!important;font-size:13.5px!important;background:transparent!important}
+  .quick-input-list .quick-input-list-entry{padding:2px 0!important}
+  .quick-input-list .monaco-list-row .label-name,
+  .quick-input-list .monaco-list-row .monaco-icon-label{color:var(--fg)!important}
+  .quick-input-list .quick-input-list-entry-description,
+  .quick-input-list .monaco-list-row .label-description{color:var(--muted)!important;font-size:12px!important;opacity:.9!important}
+  /* Monaco paints a gray background for hover AND for the "focused but list not
+     DOM-focused" row (the palette keeps focus in the input, so its highlighted row
+     always renders as that inactive gray). Force our surfaces for every such
+     state — the single accent-filled row is the real selection cue. */
+  .quick-input-list .monaco-list-row:hover:not(.focused):not(.selected){background:var(--panel)!important}
+  .quick-input-list:not(.focused) .monaco-list-row.focused,
+  .quick-input-list .monaco-list-row.focused,
+  .quick-input-list .monaco-list-row.selected{background:var(--accent)!important;color:#fff!important}
+  .quick-input-list .monaco-list-row.focused .label-name,
+  .quick-input-list .monaco-list-row.selected .label-name,
+  .quick-input-list .monaco-list-row.focused .monaco-icon-label,
+  .quick-input-list .monaco-list-row.focused .monaco-highlighted-label,
+  .quick-input-list .monaco-list-row.focused .quick-input-list-entry-description,
+  .quick-input-list .monaco-list-row.focused .label-description{color:#fff!important;opacity:1!important}
+  /* the fuzzy-match highlight: accent-green normally, underlined on the active row */
+  .quick-input-list .monaco-highlighted-label .highlight,.quick-input-list .highlight{color:var(--accent2)!important;font-weight:600!important}
+  .quick-input-list .monaco-list-row.focused .highlight,
+  .quick-input-list .monaco-list-row.selected .highlight{color:#fff!important;text-decoration:underline}
+  /* keybinding chips */
+  .monaco-keybinding-key{background:var(--panel)!important;border:1px solid var(--border)!important;
+    border-bottom-width:2px!important;border-radius:4px!important;color:var(--muted)!important;
+    box-shadow:none!important;font-family:var(--mono)!important;font-size:11px!important}
+  .quick-input-list .monaco-list-row.focused .monaco-keybinding-key,
+  .quick-input-list .monaco-list-row.selected .monaco-keybinding-key{background:rgba(255,255,255,.16)!important;
+    border-color:rgba(255,255,255,.35)!important;color:#fff!important}
+  /* the little scrollbar inside the list */
+  .quick-input-widget .monaco-scrollable-element>.scrollbar>.slider{background:var(--border)!important;border-radius:6px!important}
+  .quick-input-widget .monaco-scrollable-element>.scrollbar>.slider:hover{background:var(--muted)!important}
+
+  /* ---- responsive / mobile ---- */
+  /* narrow: stack the panes, drop the manual gutter — but keep the solo collapse
+     working (don't let the forced flex re-expand a hidden output). */
+  @media(max-width:700px){
+    main{flex-direction:column!important}
+    /* editor fills; output sits at the bottom at ~30vh by default */
+    main>.pane.src{flex:1 1 auto!important;min-height:0}
+    main>.pane.out{flex:0 0 30vh!important;min-height:0}
+    main.out-hidden>.pane.src{flex:1 1 auto!important}
+    main.out-hidden>.pane.out{flex:0 0 0!important;opacity:0}
+    main>#gutter{display:none}
+    #orientBtn{display:none}   /* stacked-only on mobile — side-by-side toggle is moot */
+  }
+  /* phone: keep the logo, shrink the whole bar to fit one row */
+  @media(max-width:600px){
+    header{min-height:40px}
+    .brand{padding-left:11px;gap:8px}
+    .brand .logo{width:76px;height:18px}
+    .brand h1{font-size:13px}
+    .statusline{display:none}           /* declutter — status lives in the panes */
+    .actions button{padding:0 11px}
+    .actions button svg{width:15px;height:15px}
+    .actions button.run{padding:0 13px}
+    .actions button.run kbd{display:none}
+    .pane .label{padding:7px 12px}
+    footer{padding:8px 12px;font-size:11px}
+    footer > span:not(.badge):not(#perf){display:none}
+  }
+  /* when the SOURCE PANE (not the viewport) is narrow — whether on a phone or
+     because the split gutter shrank the editor — keep the tab bar on ONE line and
+     never let it wrap onto a second row. */
+  @container srcpane (max-width:460px){
+    .pane.src .label{flex-wrap:nowrap;overflow:hidden}
+    #srcTabs{min-width:0}
+  }
+  /* very narrow: keep the logo mark, drop the wordmark text */
+  @media(max-width:430px){ .brand h1{display:none} }
 </style>
 </head>
 <body>
 <header>
-  <h1>nimony<span class="dot">·</span>playground</h1>
-  <span class="tag" id="engineTag">engine: loading…</span>
-  <span class="tag" id="lspTag" style="display:none">lsp: off</span>
+  <div class="brand">
+    <a class="logo" href="../" data-tip="aoughwl docs" aria-label="aoughwl documentation"></a>
+    <h1><span class="np-nimony">nimony</span><span class="dot">·</span><span class="np-pg">playground</span></h1>
+  </div>
   <div class="spacer"></div>
-  <select id="examples" title="Load an example"></select>
-  <button class="run" id="runBtn" disabled>▶ Run <kbd>⌃⏎</kbd></button>
-  <button id="themeBtn" title="Toggle theme">◐</button>
+  <div class="actions">
+    <button id="curlyBtn" class="curly" data-tip="Curly-brace block mode (experimental)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.3 2.5c-1.6 0-1.6 1.5-1.6 2.7 0 1.2-.5 1.8-1.5 2.8 1 1 1.5 1.6 1.5 2.8 0 1.2 0 2.7 1.6 2.7"/><path d="M9.7 2.5c1.6 0 1.6 1.5 1.6 2.7 0 1.2.5 1.8 1.5 2.8-1 1-1.5 1.6-1.5 2.8 0 1.2 0 2.7-1.6 2.7"/></svg>
+    </button>
+    <button id="shareBtn" data-tip="Copy a shareable link to this code">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.4 9.6l3.2-3.2"/><path d="M8.7 4.6l1-1a2.15 2.15 0 013 3l-1.6 1.6"/><path d="M7.3 11.4l-1 1a2.15 2.15 0 01-3-3l1.6-1.6"/></svg>
+    </button>
+    <button id="themeBtn" data-tip="Toggle light / dark theme">
+      <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 000 10.8z" fill="currentColor"/></svg>
+    </button>
+    <button class="run" id="runBtn" disabled data-tip="Compile & run — Ctrl/Cmd + Enter">
+      <svg viewBox="0 0 16 16"><path d="M4.5 3.2l8 4.8-8 4.8z" fill="currentColor"/></svg> Run <kbd>⌃⏎</kbd>
+    </button>
+  </div>
 </header>
 
-<main>
-  <section class="pane">
-    <div class="label">nimony source <span class="status" id="srcStatus"></span></div>
-    <div id="editor"></div>
-    <textarea id="fallback" spellcheck="false"></textarea>
+<main id="main" data-layout="cols">
+  <section class="pane src">
+    <div class="label">
+      <div class="tabs" id="srcTabs">
+        <button id="stabEdit" class="active" data-sview="edit" data-tip="Your nimony source">Source</button>
+        <button id="stabPnif" data-sview="pnif" data-tip="Parsed — the untyped .p.nif from nifparser">Parsed</button>
+        <button id="stabSnif" data-sview="snif" data-tip="Typed — the .s.nif from nimsem (types &amp; symbols resolved)">Typed</button>
+        <button id="stabRnif" data-sview="rnif" data-tip="Run rung — the execution serialized as NIF (from nifi)">Run</button>
+      </div>
+      <div class="statusline" id="statusLine" data-tip="Engine · live diagnostics · in-browser code intelligence"><span class="sdot"></span><span id="statusText">engine loading…</span></div>
+      <span class="status" id="semStatus"></span>
+    </div>
+    <div class="srcbody">
+      <div class="sview active" id="sviewEdit">
+        <div id="editor"></div>
+        <textarea id="fallback" spellcheck="false"></textarea>
+      </div>
+      <div class="sview" id="sviewPnif"><pre id="pnif" class="nifview"><span class="sys">The parsed NIF (<code>.p.nif</code>) appears here live as you type — nifparser turns your source into nimony's untyped intermediate form.</span></pre></div>
+      <div class="sview" id="sviewSnif"><pre id="snif" class="nifview"><span class="sys">The typed NIF (<code>.s.nif</code>) appears here after type-checking — nimsem resolves every symbol, overload and type on top of the parsed form.</span></pre></div>
+      <div class="sview" id="sviewRnif"><pre id="rnif" class="nifview"><span class="sys">Press Run to see the program's execution serialized as NIF — the <em>run rung</em>: source → parsed → typed → <strong>run</strong>, the bottom of nifi's content-addressed compilation tower.</span></pre></div>
+    </div>
+    <button id="showOut" class="fab" data-tip="Show the output panel">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.6 6.4L6.6 8l-2 1.6"/><line x1="8" y1="10" x2="11" y2="10"/></svg>
+    </button>
   </section>
-  <section class="pane">
-    <div class="label">output <span class="status" id="outStatus"></span></div>
-    <pre id="out"><span class="sys">Pick an example and press Run. The interpreter runs entirely in your browser — no server ever sees or executes your code.</span></pre>
+  <div id="gutter" title="Drag to resize"></div>
+  <section class="pane out">
+    <div class="label">
+      <div class="tabs">
+        <button id="tabOut" class="active" data-view="out">Output</button>
+        <button id="tabSym" data-view="sym">Symbols</button>
+      </div>
+      <span class="status" id="outStatus"></span>
+      <button id="stdinBtn" class="paneBtn" data-tip="stdin"></button>
+      <button id="wrapBtn" class="paneBtn" data-tip="Word wrap"></button>
+      <button id="orientBtn" class="paneBtn" data-tip="Layout"></button>
+      <button id="hideBtn" class="paneBtn" data-tip="Close output"></button>
+    </div>
+    <div class="view active" id="viewOut">
+      <pre id="out"><span class="sys">Pick an example and press Run. The interpreter runs entirely in your browser — no server ever sees or executes your code.</span></pre>
+      <div id="stdinBar">
+        <span class="lbl">stdin</span>
+        <textarea id="stdinBox" spellcheck="false" placeholder="Text here is fed to the program's stdin — readLine(stdin, s) / readAll(stdin). One line per readLine."></textarea>
+      </div>
+    </div>
+    <div class="view" id="viewSym">
+      <div id="symList"><div id="symEmpty">Symbols in your code appear here as you type — click one to jump to it. Hover any name in the editor for its type; ⌃Space completes; F12 goes to definition.</div></div>
+    </div>
   </section>
 </main>
 
 <footer>
   <span class="badge">● 100% client-side</span>
-  <span>The nimony interpreter (<code>nifi</code>) is compiled to JavaScript and runs in this tab. No backend.</span>
+  <span class="ftxt"><a href="https://github.com/aoughwl/nifparser" target="_blank" rel="noopener"><code>nifparser</code></a> · <a href="https://github.com/nim-lang/nimony" target="_blank" rel="noopener"><code>nimsem</code></a> · <a href="https://github.com/aoughwl/nifi" target="_blank" rel="noopener"><code>nifi</code></a> → JS in this tab, no backend</span>
   <div style="flex:1"></div>
   <span id="perf"></span>
 </footer>
 
-<script src="examples.js"></script>
-<script src="engine.js"></script>
-<script src="editor.js"></script>
+<script>
+// Node-globals shim. The nifi/nimsem JS bundles were produced for a Node-ish
+// host and reference `process` and `Buffer` on their raw-stdio / error / exit
+// paths — e.g. `fwrite` does `_stream(f).write(Buffer.from(bytes))`. The happy
+// path (echo) uses the intercepted __nifi_ capture natives, so examples never
+// hit these; but stdlib code that writes via libc stdio does, and in a real
+// browser those refs throw "process is not defined" / "Buffer is not defined".
+(function(){
+  var g = globalThis;
+  if(!g.global) g.global = g;
+  function toStr(s){
+    if(typeof s === "string") return s;
+    if(s && typeof s.length === "number"){ var r=""; for(var i=0;i<s.length;i++) r+=String.fromCharCode(s[i]&0xff); return r; }
+    return s==null ? "" : String(s);
+  }
+  if(typeof g.Buffer === "undefined")
+    g.Buffer = { from:function(x){ return (x instanceof Uint8Array) ? x : Uint8Array.from(x||[]); } };
+  if(typeof g.process === "undefined")
+    g.process = {
+      platform:"browser", argv:[], env:{}, cwd:function(){ return "/"; },
+      stdout:{ write:function(s){ g.__nifi_out=(g.__nifi_out||"")+toStr(s); return true; } },
+      stderr:{ write:function(s){ g.__nifi_err=(g.__nifi_err||"")+toStr(s); return true; } },
+      exit:function(code){ var e=new Error("process.exit("+(code||0)+")"); e.__isExit=true; throw e; }
+    };
+})();
+// Shared client-side options — the curly-brace toggle lives here so parser.js /
+// engine.js pick it up without any coupling to the header UI. Toggled below.
+window.NifiOpts = window.NifiOpts || { curly:false };
+</script>
+<!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
+     refresh (the big bundles are fetched separately and change rarely). -->
+<script src="examples.js?v=6"></script>
+<script src="pipeline.js?v=10"></script>
+<script src="engine.js?v=8"></script>
+<script src="parser.js?v=8"></script>
+<script src="sem.js?v=8"></script>
+<script src="editor.js?v=7"></script>
+<script src="lsp.js?v=7"></script>
+<script src="curlyconvert.js?v=7"></script>
 <script>
 (function(){
   const $ = s => document.querySelector(s);
-  const outEl=$("#out"), runBtn=$("#runBtn"), exSel=$("#examples");
-  const engineTag=$("#engineTag"), lspTag=$("#lspTag");
-  const outStatus=$("#outStatus"), srcStatus=$("#srcStatus"), perf=$("#perf");
+  const outEl=$("#out"), runBtn=$("#runBtn");
+  // the three NIF rungs now live in the SOURCE pane's tabs (Parsed/Typed/Run).
+  const pnifEl=$("#pnif"), snifEl=$("#snif"), rnifEl=$("#rnif");
+  const statusLine=$("#statusLine"), statusText=$("#statusText");
+  const outStatus=$("#outStatus"), perf=$("#perf");
   const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const print = html => { outEl.innerHTML = html; };
-  // Tier-2 is opt-in (URL ?tier2 or window.__NIFI_TIER2); Tier-1 is unchanged.
-  const TIER2 = /[?&]tier2\b/.test(location.search) || window.__NIFI_TIER2 === true;
 
-  (window.EXAMPLES||[]).forEach((ex,i)=>{const o=document.createElement("option");o.value=i;o.textContent=ex.name;exSel.appendChild(o);});
-  function loadExample(i){
-    const ex=window.EXAMPLES[i]; if(!ex) return;
-    window.NifiEditor.setValue(ex.source);
-    srcStatus.textContent = ex.snif ? "runnable" : "compile on run";
-    print('<span class="sys">Ready — press Run.</span>');
+  // ---- NIF presenter: tokenize a NIF stream into colored spans so it reads as a
+  //      tree, not a wall of text. It's a lexer, not a parser — it never fails on
+  //      malformed input, and because the host stays a <pre> with user-select:text
+  //      the rendered form still copies out as verbatim NIF. Recognizes:
+  //        (          depth-banded parens        .directive   nimony pragmas/header
+  //        tag        the head atom of a node     "string"     literals
+  //        123        numbers                     sym.0.Ihash  name + dimmed scope
+  //        @c,l,file  / ~rel  line-info site keys (dimmed, they're provenance noise)
+  //        .          a bare nil node
+  const NUM_RE=/^[+-]?(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$/;
+  // Build paths leak into NIF — module files in `(kv … "…/system.nim")` and the
+  // `@col,line,FILE` line-info site keys carry absolute/relative host paths
+  // (/home/…, ../.claude/jobs/…). Collapse any .nim/.nif path to ~basename. The
+  // pattern requires a slash AND a .nim/.nif suffix, so ordinary program strings
+  // (even ones with slashes, like "/etc/hosts") are left alone.
+  const PATH_RE=/[^\s"(),@~]*\/[^\s"(),@~]*\.(?:nim|nif)\b/g;
+  const shortenPaths = s => String(s).replace(PATH_RE, m => "~"+m.slice(m.lastIndexOf("/")+1));
+  function nifWord(word, isTag){
+    let out="";
+    const span=(cls,t)=>{ out+='<span class="'+cls+'">'+esc(t)+'</span>'; };
+    // split off any line-info tail (introduced by @ or ~)
+    let k=-1; for(let x=0;x<word.length;x++){ const ch=word[x]; if(ch==='@'||ch==='~'){ k=x; break; } }
+    const name = k<0 ? word : word.slice(0,k);
+    const info = k<0 ? ""   : word.slice(k);
+    if(name.length){
+      if(name===".") span("nt-nil",name);
+      else if(name[0]===".") span("nt-dir",name);
+      else if(isTag) span("nt-tag",name);
+      else if(NUM_RE.test(name)) span("nt-num",name);
+      else { const d=name.indexOf(".");
+        if(d>0){ span("nt-sym",name.slice(0,d)); span("nt-scope",name.slice(d)); }
+        else span("nt-sym",name); }
+    }
+    if(info) span("nt-info",shortenPaths(info));
+    return out;
   }
-  exSel.addEventListener("change",()=>loadExample(+exSel.value));
+  function renderNif(src){
+    src=String(src); let html="", i=0, depth=0, expectTag=false; const n=src.length;
+    while(i<n){
+      const c=src[i];
+      if(c===" "||c==="\t"||c==="\n"||c==="\r"){ let j=i+1; while(j<n && /\s/.test(src[j])) j++;
+        const ws=src.slice(i,j);
+        // Preserve any run that spans a newline verbatim — that's real indentation.
+        // A pure inline run (e.g. the reserved padding after `.indexat 7363`) is
+        // just inter-token filler in NIF, so collapse it to one space instead of
+        // rendering a long weird gap before the next token.
+        html += ws.indexOf("\n")>=0 ? esc(ws) : " "; i=j; continue; }
+      if(c==="("){ html+='<span class="nt-par nt-d'+(depth%4)+'">(</span>'; depth++; expectTag=true; i++; continue; }
+      if(c===")"){ depth=Math.max(0,depth-1); html+='<span class="nt-par nt-d'+(depth%4)+'">)</span>'; expectTag=false; i++; continue; }
+      if(c==='"'){ let j=i+1; while(j<n){ if(src[j]==="\\"){ j+=2; continue; } if(src[j]==='"'){ j++; break; } j++; }
+        html+='<span class="nt-str">'+esc(shortenPaths(src.slice(i,j)))+'</span>'; i=j; expectTag=false; continue; }
+      let j=i; while(j<n && " \t\n\r()\"".indexOf(src[j])<0) j++;
+      html+=nifWord(src.slice(i,j), expectTag); i=j; expectTag=false;
+    }
+    return html;
+  }
+  const nifMeta = txt => '<span class="nt-meta sys">— '+esc(txt)+'</span>';
+  // Sticky-bottom output, terminal style. The re-run "jump to the top" the user
+  // saw came from blanking the pane to "running…" between runs: that collapses
+  // its height and resets scrollTop to 0, so the next output animated down from
+  // the top. Fix is two parts: (1) run() no longer blanks the pane — the prior
+  // output stays put (scroll intact) until the new output replaces it in one
+  // step, so a same-length re-run doesn't move at all; (2) we only auto-scroll
+  // to the bottom when the user was ALREADY near the bottom (following along),
+  // and never yank them down if they'd scrolled up to read.
+  let nearBottom = true;
+  outEl.addEventListener("scroll", () => {
+    nearBottom = (outEl.scrollHeight - outEl.scrollTop - outEl.clientHeight) < 40;
+  });
+  function scrollOutToBottom(force){
+    // `force` is set by an explicit Run: a Run always jumps to the freshest output,
+    // even if you'd scrolled up (or were parked at the very top) beforehand. The
+    // nearBottom gate only governs passive/incremental updates so we never yank a
+    // reader down mid-scroll.
+    if(!force && !nearBottom) return;
+    const top = outEl.scrollHeight;
+    try{ outEl.scrollTo({ top, behavior: (top - outEl.clientHeight) > 4000 ? 'auto' : 'smooth' }); }
+    catch(_){ outEl.scrollTop = top; }
+  }
 
-  async function run(){
-    const ex=window.EXAMPLES[+exSel.value];
-    if(!window.NifiEngine || !window.NifiEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
-    // Tier 2 recompiles from the editor buffer before running; show that phase.
-    const busyLabel = TIER2 ? "compiling…" : "running…";
-    runBtn.disabled=true; outStatus.textContent=busyLabel; print('<span class="sys">'+busyLabel+'</span>');
+  // ---- one combined status line: engine · diagnostics · intellisense ----
+  // A single element replaces the three chips. Any error blocks Run.
+  const st = { engine:"loading", errCount:null, lspOn:false, lspCount:0 };
+  function paintStatus(){
+    const parts=[];
+    parts.push(st.engine==="ready" ? "engine ready" : st.engine==="unavailable" ? "engine unavailable" : "engine loading…");
+    if(st.errCount!=null) parts.push(st.errCount>0 ? st.errCount+" error"+(st.errCount===1?"":"s") : "no errors");
+    if(st.lspOn) parts.push(st.lspCount+" symbol"+(st.lspCount===1?"":"s"));
+    statusText.textContent = parts.join("  ·  ");
+    const cls = (st.engine==="unavailable" || st.errCount>0) ? "err"
+              : (st.engine==="ready" && st.errCount===0) ? "ok" : "";
+    statusLine.className = "statusline"+(cls?" "+cls:"");
+    updateRunState();
+  }
+  // Run is refused whenever the engine isn't up or the code has errors.
+  function updateRunState(){
+    const blocked = st.errCount>0;
+    const ready = st.engine==="ready";
+    runBtn.classList.toggle("blocked", blocked && ready);
+    if(!runBtn.classList.contains("running")) runBtn.disabled = !ready || blocked;
+    runBtn.setAttribute("data-tip", blocked ? "Fix the errors above to run"
+      : ready ? "Compile & run — Ctrl/Cmd + Enter" : "Engine still loading…");
+  }
+
+  // ---- right-pane tabs (Output | Symbols) ----
+  function selectTab(view){
+    ["out","sym"].forEach(v=>{
+      $("#tab"+v[0].toUpperCase()+v.slice(1)).classList.toggle("active", v===view);
+      $("#view"+v[0].toUpperCase()+v.slice(1)).classList.toggle("active", v===view);
+    });
+  }
+  document.querySelectorAll(".pane.out .tabs button").forEach(b=>
+    b.addEventListener("click",()=>selectTab(b.dataset.view)));
+
+  // ---- source-pane tabs (Source | Parsed .p.nif | Typed .s.nif | Run rung) ----
+  // The editor and the three NIF rungs share the pane; switching just flips which
+  // .sview is active. Monaco must be told to relayout when its container reappears
+  // (it renders 0-height while display:none), and the Run rung is fetched lazily
+  // the first time you land on it.
+  let curSrcView = "edit";
+  function selectSrcView(v){
+    curSrcView = v;
+    ["edit","pnif","snif","rnif"].forEach(k=>{
+      $("#stab"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
+      $("#sview"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
+    });
+    if(v==="edit" && window.NifiEditor.relayout) window.NifiEditor.relayout();
+    if(v==="rnif") ensureRunRung();
+  }
+  document.querySelectorAll("#srcTabs button").forEach(b=>
+    b.addEventListener("click",()=>selectSrcView(b.dataset.sview)));
+
+  // ---- live diagnostics: FAST syntax (nifparser) + DEBOUNCED semantic (nimsem) ----
+  let syntaxDiags = [], semDiags = [], outShowingProblems = false;
+  function snapCol(msg, lineText, fallbackCol){
+    const m = /(?:undeclared identifier|identifier expected, but found|undeclared field):?\s*'?([A-Za-z_]\w*)'?/.exec(msg);
+    if(m && lineText){ const idx = lineText.indexOf(m[1]); if(idx>=0) return { col:idx+1, endCol:idx+1+m[1].length }; }
+    if(lineText){ const w = /^[A-Za-z_]\w*/.exec(lineText.slice(Math.max(0,fallbackCol-1))); if(w) return { col:fallbackCol, endCol:fallbackCol+w[0].length }; }
+    return { col:fallbackCol, endCol:fallbackCol+1 };
+  }
+  function refreshMarkers(){
+    const lines = window.NifiEditor.getValue().split("\n");
+    const marks = [], problems = [];
+    for(const d of syntaxDiags){
+      const c = (d.col|0)+1, s = snapCol(d.message, lines[d.line-1]||"", c);
+      marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:d.message, severity:"error" });
+      problems.push({ line:d.line, col:s.col, message:d.message, severity:"error" });
+    }
+    for(const d of semDiags){
+      if(d.line < 1){                     // unknown location (internal checker error):
+        problems.push({ line:0, col:0, message:d.message, severity:d.severity||"error" });
+        continue;                         // list it in Problems, but NO editor squiggle
+      }
+      const s = snapCol(d.message, lines[d.line-1]||"", d.col);
+      marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:d.message, severity:d.severity||"error" });
+      problems.push({ line:d.line, col:s.col, message:d.message, severity:d.severity||"error" });
+    }
+    window.NifiEditor.setDiagnostics(marks);
+    setDiagBadge(problems);               // count from problems so a line:0 error still blocks Run
+    showProblems(problems);
+  }
+  function showProblems(problems){
+    if(problems.length){
+      outShowingProblems = true;
+      outEl.innerHTML = '<span class="err">● '+problems.length+' problem'+(problems.length>1?'s':'')+'</span>\n' +
+        problems.map(p=>'<span class="prob'+(p.severity==="warning"?" warn":"")+'" data-l="'+p.line+'" data-c="'+p.col+'">'+
+          '<span class="loc">'+(p.line>0 ? p.line+':'+p.col : '⚠')+'</span>'+esc(p.message)+'</span>').join("\n");
+    } else if(outShowingProblems){
+      outShowingProblems = false;
+      outEl.innerHTML = '<span class="ok">● no errors</span>  <span class="sys">— press Run to execute.</span>';
+    }
+  }
+  const SYM_LABEL = { proc:"proc",func:"func",method:"method",iterator:"iter",template:"templ",
+    macro:"macro",converter:"conv",type:"type",const:"const",var:"var",let:"let",
+    param:"param",local:"local",field:"field",enumField:"enum" };
+  function renderOutline(){
+    const listEl = $("#symList"); if(!listEl) return;
+    const items = (window.NifiLsp && window.NifiLsp.outline) ? window.NifiLsp.outline() : [];
+    if(!items.length){ listEl.innerHTML = '<div id="symEmpty">No symbols yet — declare a <code>proc</code>, <code>type</code>, or <code>var</code> and it shows up here.</div>'; return; }
+    const row = (s,child)=>'<div class="sym'+(child?" child":"")+'" data-l="'+s.line+'" data-c="'+s.col+'">'+
+      '<span class="k">'+esc(SYM_LABEL[s.kind]||s.kind)+'</span><span class="nm">'+esc(s.name)+'</span>'+
+      (s.detail&&s.detail!==s.name?'<span class="dt">'+esc(s.detail)+'</span>':'')+'</div>';
+    let html=""; for(const s of items){ html+=row(s,false); for(const c of (s.children||[])) html+=row(c,true); }
+    listEl.innerHTML = html;
+  }
+  function jumpFromEl(el){
+    const t = el.closest("[data-l]"); if(!t) return;
+    window.NifiEditor.revealPosition(+t.dataset.l, +t.dataset.c);
+  }
+  document.addEventListener("click", e=>{
+    if(e.target.closest("#symList .sym") || e.target.closest("#out .prob")) jumpFromEl(e.target);
+  });
+  function setDiagBadge(marks){
+    // count only true errors (warnings don't block Run or turn the dot red)
+    st.errCount = (marks||[]).filter(m=>(m.severity||"error")!=="warning").length;
+    paintStatus();
+  }
+
+  let parseTimer=null, semTimer=null;
+  function scheduleParse(){
+    if(parseTimer) clearTimeout(parseTimer);
+    parseTimer=setTimeout(runParse, 200);
+    if(semTimer) clearTimeout(semTimer);
+    semTimer=setTimeout(runSemCheck, 500);
+  }
+  function runParse(){
+    if(!window.NifiParser || !window.NifiParser.ready){
+      pnifEl.innerHTML='<span class="sys">parser loading…</span>'; return;
+    }
+    const src = window.NifiEditor.getValue();
     const t0=performance.now();
     try{
-      const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), example: ex });
+      const { nif, diags } = window.NifiParser.parseFull(src, "in.nim");
       const ms=(performance.now()-t0).toFixed(1);
-      let html=esc(res.stdout||"");
-      if(res.stderr) html+='\n<span class="err">'+esc(res.stderr)+'</span>';
-      html+='\n<span class="ok">— exit '+(res.exitCode|0)+' · '+ms+' ms</span>';
-      print(html||'<span class="sys">(no output)</span>'); perf.textContent=ms+" ms";
-    }catch(e){ print('<span class="err">'+esc(e&&e.message||e)+'</span>'); }
-    finally{ runBtn.disabled=false; outStatus.textContent=""; }
+      if(window.NifiLsp) window.NifiLsp.update(src, nif);
+      syntaxDiags = diags || [];
+      if(syntaxDiags.length) semDiags = [];
+      refreshMarkers();
+      // only surface a banner when there ARE syntax errors — a clean parse just
+      // shows the NIF (no "no syntax errors" noise).
+      const banner = syntaxDiags.length
+        ? '<span class="err">● '+syntaxDiags.length+' syntax '+
+            (syntaxDiags.length===1?'error':'errors')+':\n'+
+            syntaxDiags.map(d=>'  '+d.line+':'+((d.col|0)+1)+'  '+esc(d.message)).join('\n')+'</span>\n\n'
+        : '';
+      pnifEl.innerHTML = banner + renderNif(nif) + "\n" +
+        nifMeta('parsed in '+ms+' ms · '+nif.length+' bytes'+
+          (window.NifiOpts&&window.NifiOpts.curly?' · curly mode':''));
+    }catch(e){
+      pnifEl.innerHTML='<span class="err">parse error: '+esc(e&&e.message||e)+'</span>';
+    }
+  }
+  async function runSemCheck(){
+    if(syntaxDiags.length){ semStatus(""); return; }
+    if(!window.NifiSem || !window.NifiSem.ready || !window.NifiParser || !window.NifiParser.ready) return;
+    try{
+      const src = window.NifiEditor.getValue();
+      const badImports = (window.NifiCore && window.NifiCore.checkImports) ? window.NifiCore.checkImports(src) : [];
+      if(badImports.length){ semDiags = badImports; refreshMarkers();
+        semStatus('<span class="err">● unavailable import</span>'); return; }
+      const { nif } = window.NifiParser.parseFull(src, "in.nim");   // memo hit — runParse already parsed this buffer
+      const t0=performance.now();
+      semStatus('<span class="sys">● type-checking…</span>');
+      const { snif, diags, cached } = await window.NifiSem.compile(nif);   // runs in the worker
+      const ms=(performance.now()-t0).toFixed(0);
+      // The semcheck is async now: the buffer may have moved on (or picked up a
+      // syntax error) while the worker was busy. Drop this result if so — a fresh
+      // runSemCheck is already queued for the current text.
+      if(window.NifiEditor.getValue() !== src || syntaxDiags.length) return;
+      if(snif && window.NifiLsp) window.NifiLsp.enrich(snif);
+      semDiags = diags || [];
+      refreshMarkers();
+      const nErr = semDiags.length;
+      // fill the Typed tab with the .s.nif (or the type errors, if it didn't check)
+      if(snif) snifEl.innerHTML = renderNif(snif) + "\n" +
+        nifMeta('typed .s.nif · '+snif.length+' bytes'+(cached?' · reused':' · '+ms+' ms'));
+      else snifEl.innerHTML = nErr
+        ? '<span class="err">● '+nErr+' type '+(nErr===1?'error':'errors')+' — fix them to see the typed NIF:</span>\n'+
+            semDiags.map(d=>'  '+(d.line>0?d.line+':'+d.col:'⚠')+'  '+esc(d.message)).join('\n')
+        : '<span class="sys">no typed NIF (the program did not type-check).</span>';
+      semStatus(nErr
+        ? '<span class="err">● '+nErr+' type '+(nErr===1?'error':'errors')+'</span>'
+        : (cached
+            ? '<span class="ok">● type-checked · incremental (reused, 0 ms)</span>'
+            : '<span class="ok">● type-checked in '+ms+' ms</span>'));
+    }catch(e){ /* stopped / transient worker failure — keep last markers */ }
+  }
+  function semStatus(html){ const el=$("#semStatus"); if(el) el.innerHTML = html||""; }
+
+  function loadDemo(){
+    window.NifiEditor.setValue(window.PLAYGROUND_DEMO || "");
+    print('<span class="sys">Ready — edit freely and press Run. Your code is compiled and run in this tab.</span>');
+    runParse();
+    runSemCheck();
+  }
+
+  // The Run button doubles as a Stop button while a program is running — since
+  // the run now happens in a worker, clicking Stop terminates that worker
+  // (killing even an infinite loop) and pipeline.js respawns a fresh one.
+  const RUN_HTML = runBtn.innerHTML;
+  const STOP_HTML = '<svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.4" fill="currentColor"/></svg> Stop <kbd>⌃⏎</kbd>';
+  let running = false;
+  function setRunning(on){
+    running = on;
+    runBtn.classList.toggle("running", on);
+    runBtn.classList.toggle("stopmode", on);
+    runBtn.innerHTML = on ? STOP_HTML : RUN_HTML;
+    if(on){ runBtn.disabled = false; runBtn.setAttribute("data-tip","Stop the running program"); }
+    else updateRunState();
+  }
+  async function run(){
+    if(running){ if(window.NifiPipe) window.NifiPipe.stop(); return; }  // Stop
+    if(!window.NifiEngine || !window.NifiEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
+    // refuse to run with errors on the board (the button is already blocked, but
+    // the keyboard shortcut can still fire) — surface them instead.
+    if(st.errCount>0){ ensureOutputVisible(); return; }
+    // ALWAYS surface the output: un-collapse the pane if hidden and switch to
+    // the Output tab, so a Run is never silently dropped behind Symbols/NIF.
+    ensureOutputVisible();
+    outShowingProblems=false;
+    // Deliberately do NOT blank the pane here — keeping the prior output (and its
+    // scroll position) visible until the new output replaces it is what stops the
+    // re-run "jump back to the top". The Run→Stop button already conveys "running",
+    // so we don't add a status line in the tab bar.
+    setRunning(true);
+    const t0=performance.now();
+    try{
+      const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), stdin: currentStdin() });
+      const ms=(performance.now()-t0).toFixed(1);
+      const parts=[];
+      if(res.stdout) parts.push(esc(res.stdout));
+      if(res.stderr) parts.push('<span class="err">'+esc(res.stderr)+'</span>');
+      // which engine ran: the bytecode VM (fast path) or the tree-walker fallback.
+      const eng = res.engine==="vm" ? ' · <span class="sys">VM</span>'
+                : res.engine==="tree" ? ' · <span class="sys">tree-walker</span>' : '';
+      parts.push('<span class="'+(res.oom?'err':'ok')+'">— exit '+(res.exitCode|0)+' · '+ms+' ms'+eng+'</span>');
+      print(parts.join('\n')); perf.textContent=ms+" ms"; scrollOutToBottom(true);
+      // keep the Run rung in sync with what just executed, if it's on screen
+      if(curSrcView==="rnif") ensureRunRung(true);
+    }catch(e){
+      if(e && e.stopped) print('<span class="err">■ stopped — the program was terminated.</span>');
+      else print('<span class="err">'+esc(e&&e.message||e)+'</span>');
+    }
+    finally{ setRunning(false); outStatus.textContent=""; }
   }
   runBtn.addEventListener("click",run);
+
+  // ---- Run rung: the program's execution serialized as NIF (nifi_run.js — the
+  //      tree-walker with the run emitter on). Computed ON DEMAND (opening the Run
+  //      tab, or a Run while it's active), never on live edit since it executes the
+  //      program. Cached by source+stdin so re-opening the tab is free. ----
+  let runRungKey=null, runRungBusy=false;
+  async function ensureRunRung(force){
+    if(!(window.NifiPipe && window.NifiPipe.ready)){ rnifEl.innerHTML='<span class="sys">engine still loading…</span>'; return; }
+    if(syntaxDiags.length){ rnifEl.innerHTML='<span class="err">fix the syntax errors first — the run rung needs a program that parses.</span>'; return; }
+    const src=window.NifiEditor.getValue(), stdin=currentStdin(), key=src+" "+stdin;
+    if(!force && key===runRungKey && rnifEl.dataset.ok==="1") return;   // cached, unchanged
+    if(runRungBusy) return;
+    runRungBusy=true; rnifEl.dataset.ok=""; rnifEl.innerHTML='<span class="sys">● tracing the run…</span>';
+    try{
+      const { nif, diags:syn } = window.NifiParser.parseFull(src, "in.nim");
+      if(syn && syn.length){ rnifEl.innerHTML='<span class="err">syntax error — cannot trace the run.</span>'; return; }
+      const m = await window.NifiPipe.runrung(nif, stdin);
+      if(window.NifiEditor.getValue()!==src) return;   // buffer moved on; a later open refetches
+      if(m.runnif){
+        runRungKey=key; rnifEl.dataset.ok="1";
+        rnifEl.innerHTML = renderNif(m.runnif) + "\n" +
+          nifMeta('run rung · '+m.runnif.length+' bytes · exit '+(m.exitCode|0)+' · tree-walker + run emitter');
+      } else if(m.ranSem && !m.snif){
+        rnifEl.innerHTML='<span class="err">the program did not type-check — no run rung.</span>';
+      } else {
+        rnifEl.innerHTML='<span class="sys">no run rung was produced'+(m.stderr?': '+esc(m.stderr):'.')+'</span>';
+      }
+    }catch(e){
+      rnifEl.innerHTML='<span class="err">run rung unavailable: '+esc(e&&e.message||e)+'</span>';
+    }finally{ runRungBusy=false; }
+  }
   document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key==="Enter"){e.preventDefault();run();}});
 
+  // 3-way theme cycle: light → dark (blue) → black (true dark). The chosen theme
+  // is mirrored onto the docs site's key (light/dark axis) so going back matches.
+  const THEMES=["light","dark","black"], THEME_NAME={light:"light",dark:"dark blue",black:"true dark"};
+  function paintTheme(){ const t=document.documentElement.getAttribute("data-theme");
+    $("#themeBtn").setAttribute("data-tip","Theme: "+(THEME_NAME[t]||t)+" — click to change"); }
   $("#themeBtn").addEventListener("click",()=>{
-    const r=document.documentElement, t=r.getAttribute("data-theme")==="dark"?"light":"dark";
+    const r=document.documentElement;
+    let i=THEMES.indexOf(r.getAttribute("data-theme")); i=(i+1)%THEMES.length;
+    const t=THEMES[i];
     r.setAttribute("data-theme",t); window.NifiEditor.setTheme(t);
-    try{localStorage.setItem("np-theme",t);}catch(_){}
+    try{localStorage.setItem("np-theme",t); localStorage.setItem("aoughwl-theme", t==="light"?"light":"dark");}catch(_){}
+    paintTheme();
   });
-  try{const t=localStorage.getItem("np-theme"); if(t) document.documentElement.setAttribute("data-theme",t);}catch(_){}
+  paintTheme();
 
-  // engine + lsp readiness hooks (called by engine.js / worker glue)
-  window.__nifiEngineReady=(ok,detail)=>{ engineTag.textContent="engine: "+(ok?"ready":"unavailable"); engineTag.className="tag"+(ok?" ok":""); runBtn.disabled=!ok; if(!ok&&detail) print('<span class="err">'+esc(detail)+'</span>'); };
-  window.__nifiLspStatus=(state)=>{ lspTag.style.display=""; lspTag.textContent="lsp: "+state; lspTag.className="tag"+(state==="live"?" ok":state==="off"?"":" warn"); };
-
-  // Tier-2 compile-on-type status. srcStatus shows a distinct "checking…" state
-  // (vs the output pane's "running…"/"compiling…") driven by editor.js's debounce.
-  window.__nifiCompiling=(on)=>{ srcStatus.textContent = on ? "checking…" : "checked ✓"; };
-  // In Tier-2 the precompiled example is only a seed — any edit means Run must
-  // recompile, so mark the source stale as soon as the user types.
-  if(TIER2 && window.NifiEditor.onChange){
-    window.NifiEditor.onChange(()=>{ srcStatus.textContent="modified — Run recompiles"; });
+  // ---- curly-brace mode toggle (experimental nifparser feature) ----
+  const curlyBtn=$("#curlyBtn");
+  try{ if(localStorage.getItem("np-curly")==="1") window.NifiOpts.curly=true; }catch(_){}
+  function paintCurly(){
+    const on=!!window.NifiOpts.curly;
+    curlyBtn.classList.toggle("on", on);
+    curlyBtn.setAttribute("data-tip",
+      (on?"Curly-brace mode ON":"Curly-brace mode off")+
+      " — accept { … } blocks (experimental) · ⌃/⌘-click to convert the code");
   }
+  // Ctrl/⌘-click rewrites the WHOLE buffer between colon/indent and curly style.
+  // Direction is inferred: if there's colon-style control flow to brace, go to
+  // curly (and enable curly mode so it parses); otherwise unbrace back to colon.
+  function convertBuffer(){
+    if(!window.NifiCurly) return;
+    const src = window.NifiEditor.getValue();
+    let out, toCurly;
+    try{
+      const curlyVer = window.NifiCurly.toCurly(src);
+      if(curlyVer !== src){ out = curlyVer; toCurly = true; }
+      else { out = window.NifiCurly.toColon(src); toCurly = false; }
+    }catch(_){ return; }
+    if(out === src && toCurly === false) out = window.NifiCurly.toColon(src);
+    window.NifiEditor.setValue(out);
+    window.NifiOpts.curly = toCurly;
+    try{localStorage.setItem("np-curly", toCurly?"1":"0");}catch(_){}
+    paintCurly(); runParse(); runSemCheck();
+  }
+  curlyBtn.addEventListener("click",(e)=>{
+    if(e.ctrlKey || e.metaKey){ e.preventDefault(); convertBuffer(); return; }
+    window.NifiOpts.curly=!window.NifiOpts.curly;
+    try{localStorage.setItem("np-curly", window.NifiOpts.curly?"1":"0");}catch(_){}
+    paintCurly(); runParse(); runSemCheck();
+  });
+  paintCurly();
 
-  // editor ready -> load first example
-  window.NifiEditor.onReady(()=>{ if(window.EXAMPLES&&window.EXAMPLES.length) loadExample(0); });
+  // ---- word-wrap toggle for the output / NIF panes ----
+  const wrapBtn=$("#wrapBtn"), mainEl=$("#main");
+  const WRAP_ICON={
+    wrap:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="4" x2="13.5" y2="4"/><path d="M2.5 8h8.5a2 2 0 010 4H8.5"/><path d="M10 10l-2 2 2 2"/><line x1="2.5" y1="12" x2="5" y2="12"/></svg>',
+    nowrap:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><line x1="2.5" y1="4" x2="13.5" y2="4"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="12" x2="10" y2="12"/><path d="M11.5 10l2 2-2 2"/></svg>'
+  };
+  let noWrap=false;
+  try{ noWrap = localStorage.getItem("np-nowrap")==="1"; }catch(_){}
+  function paintWrap(){
+    mainEl.classList.toggle("nowrap", noWrap);
+    wrapBtn.innerHTML = noWrap ? WRAP_ICON.nowrap : WRAP_ICON.wrap;
+    wrapBtn.setAttribute("data-tip", noWrap
+      ? "Overflow (no wrap) — click to wrap long lines"
+      : "Word wrap on — click to overflow instead");
+  }
+  wrapBtn.addEventListener("click",()=>{
+    noWrap=!noWrap; try{localStorage.setItem("np-nowrap", noWrap?"1":"0");}catch(_){}
+    paintWrap();
+  });
+  paintWrap();
+
+  // ---- stdin: a togglable input box whose text is piped to the program on Run
+  //      (the run is synchronous, so input is supplied up front, not live). ----
+  const stdinBtn=$("#stdinBtn"), stdinBar=$("#stdinBar"), stdinBox=$("#stdinBox");
+  // keyboard — clearer "type your program's input here" than the old download-tray glyph
+  stdinBtn.innerHTML='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="4.3" width="13" height="7.4" rx="1.3"/><path d="M4 6.9h0M6.5 6.9h0M9 6.9h0M11.5 6.9h0M4 9.1h0M11.5 9.1h0"/><line x1="6" y1="9.1" x2="10" y2="9.1"/></svg>';
+  let stdinOn=false;
+  try{ stdinOn = localStorage.getItem("np-stdin-open")==="1"; }catch(_){}
+  function paintStdin(){
+    stdinBar.classList.toggle("show", stdinOn);
+    stdinBtn.classList.toggle("on", stdinOn);
+    stdinBtn.setAttribute("data-tip", stdinOn ? "Hide stdin input" : "stdin — pipe input to the program");
+  }
+  stdinBtn.addEventListener("click",()=>{
+    stdinOn=!stdinOn; try{localStorage.setItem("np-stdin-open", stdinOn?"1":"0");}catch(_){}
+    paintStdin(); if(stdinOn){ ensureOutputVisible(); stdinBox.focus(); }
+  });
+  paintStdin();
+  // exposed so run() can feed it without worrying about declaration order
+  function currentStdin(){ const b=document.getElementById("stdinBox"); return b ? b.value : ""; }
+
+  // ---- ONE site-wide right-click context menu (incl. inside Monaco, whose
+  //      built-in menu is disabled) so every menu looks identical ----
+  (function(){
+    const menu=document.createElement("div");
+    menu.id="ctxmenu"; menu.setAttribute("role","menu"); document.body.appendChild(menu);
+    const hide=()=>{ menu.classList.remove("show"); menu.innerHTML=""; };
+    const selText=()=>{ const s=window.getSelection&&window.getSelection(); return s?String(s).trim():""; };
+    // menu contents for a right-click INSIDE the Monaco editor — drives Monaco's
+    // own actions, so we keep its power (goto/palette) with our look.
+    function editorItems(){
+      const ed=window.NifiEditor.getEditor(); if(!ed) return [];
+      const model=ed.getModel(), sel=ed.getSelection();
+      const hasSel = sel && !sel.isEmpty();
+      const selStr = hasSel ? model.getValueInRange(sel) : "";
+      const trigger=id=>{ const a=ed.getAction(id); if(a) a.run(); ed.focus(); };
+      return [
+        { label:"Cut", kb:"⌘X", off:!hasSel, act:()=>{ if(navigator.clipboard) navigator.clipboard.writeText(selStr);
+            ed.executeEdits("ctx",[{range:sel,text:"",forceMoveMarkers:true}]); ed.focus(); }},
+        { label:"Copy", kb:"⌘C", off:!hasSel, act:()=>{ if(navigator.clipboard) navigator.clipboard.writeText(selStr); ed.focus(); }},
+        { label:"Paste", kb:"⌘V", act:()=>{ if(navigator.clipboard&&navigator.clipboard.readText)
+            navigator.clipboard.readText().then(t=>{ ed.executeEdits("ctx",[{range:ed.getSelection(),text:t,forceMoveMarkers:true}]); ed.focus(); }).catch(()=>{}); }},
+        { sep:true },
+        { label:"Go to Definition", kb:"F12", act:()=>trigger("editor.action.revealDefinition") },
+        { label:"Select all", kb:"⌘A", act:()=>trigger("editor.action.selectAll") },
+        { sep:true },
+        { label:"Command Palette", kb:"F1", act:()=>trigger("editor.action.quickCommand") },
+        { label:"Run", kb:"⌃⏎", off:runBtn.disabled, act:()=>run() },
+      ];
+    }
+    function items(target){
+      if(target.closest(".monaco-editor")) return editorItems();
+      const nifPane = target.closest(".nifview");         // any of the source-pane NIF rungs
+      const inOut = !!nifPane || !!target.closest("#viewOut");
+      const sel = selText();
+      const out=[];
+      out.push({ label:"Copy", kb:"⌘C", off:!sel, act:()=>{ if(sel&&navigator.clipboard) navigator.clipboard.writeText(sel); }});
+      if(inOut){
+        const pane = nifPane || outEl;
+        out.push({ label:"Select all", kb:"⌘A", act:()=>{
+          const r=document.createRange(); r.selectNodeContents(pane);
+          const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }});
+        out.push({ sep:true });
+        out.push({ label: mainEl.classList.contains("nowrap")?"Enable word wrap":"Disable word wrap", act:()=>wrapBtn.click() });
+      }
+      out.push({ sep:true });
+      out.push({ label:"Run", kb:"⌃⏎", off:runBtn.disabled, act:()=>run() });
+      out.push({ label:"Copy share link", act:()=>shareBtn.click() });
+      return out;
+    }
+    function open(x,y,target){
+      menu.innerHTML="";
+      for(const it of items(target)){
+        if(it.sep){ const s=document.createElement("div"); s.className="sep"; menu.appendChild(s); continue; }
+        const d=document.createElement("div");
+        d.className="item"+(it.off?" disabled":"");
+        d.innerHTML='<span>'+it.label+'</span>'+(it.kb?'<span class="kb">'+it.kb+'</span>':'');
+        if(!it.off) d.addEventListener("mousedown",e=>{ e.preventDefault(); hide(); try{it.act&&it.act();}catch(_){} });
+        menu.appendChild(d);
+      }
+      menu.classList.add("show");
+      const mw=menu.offsetWidth, mh=menu.offsetHeight;
+      menu.style.left=Math.max(6, Math.min(x, innerWidth-mw-6))+"px";
+      menu.style.top =Math.max(6, Math.min(y, innerHeight-mh-6))+"px";
+    }
+    // capture phase: Monaco consumes contextmenu on its textarea even with its
+    // own menu disabled, so we must intercept before it.
+    document.addEventListener("contextmenu",e=>{ e.preventDefault(); e.stopPropagation(); open(e.clientX, e.clientY, e.target); }, true);
+    // capture phase: Monaco stops propagation on its own mousedown, so a click
+    // INTO the editor would never bubble here — capture closes the menu anyway.
+    document.addEventListener("mousedown",e=>{ if(!e.target.closest("#ctxmenu")) hide(); }, true);
+    document.addEventListener("scroll",hide,true);
+    window.addEventListener("resize",hide);
+    document.addEventListener("keydown",e=>{ if(e.key==="Escape") hide(); });
+  })();
+
+  // ---- split layout: two explicit controls in the output header — orientation
+  //      (side-by-side <-> stacked) and hide — plus a floating button that
+  //      brings the output back once hidden. Orientation is remembered so the
+  //      un-hide restores the last one you used. ----
+  let ensureOutputVisible = ()=>{};
+  (function(){
+    const main=$("#main"), gutter=$("#gutter"),
+          orientBtn=$("#orientBtn"), hideBtn=$("#hideBtn"), showOut=$("#showOut");
+    // the shaded region is the OUTPUT pane: on the right (cols) or below (rows).
+    // The button shows the layout you'll switch TO (the action), so the icons are
+    // paired with the opposite orientation: in cols mode show the stacked icon,
+    // in rows mode show the side-by-side icon.
+    const ORIENT_ICON={
+      cols:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.6"/><line x1="2" y1="8.2" x2="14" y2="8.2"/><rect x="3.3" y="9.1" width="9.4" height="3" rx=".5" fill="currentColor" stroke="none" opacity=".32"/></svg>',
+      rows:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.6"/><line x1="8.4" y1="3" x2="8.4" y2="13"/><rect x="9" y="4.3" width="4" height="7.4" rx=".5" fill="currentColor" stroke="none" opacity=".32"/></svg>'
+    };
+    // close (X) — reads better than the old "collapse toward the edge" glyph
+    hideBtn.innerHTML='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4.5" y1="4.5" x2="11.5" y2="11.5"/><line x1="11.5" y1="4.5" x2="4.5" y2="11.5"/></svg>';
+    let orient="cols", hidden=false, split=50;
+    try{ const s=+localStorage.getItem("np-split"); if(s>=10&&s<=90) split=s; }catch(_){}
+    try{ const o=localStorage.getItem("np-orient"); if(o==="cols"||o==="rows") orient=o; }catch(_){}
+    try{ hidden = localStorage.getItem("np-hidden")==="1"; }catch(_){}
+    // migrate the old single-key cycle state, if present
+    try{ const l=localStorage.getItem("np-layout"); if(l==="solo") hidden=true; else if(l==="rows"||l==="cols") orient=l; }catch(_){}
+    const applySplit=()=>main.style.setProperty("--split", split+"%");
+    function apply(){
+      main.setAttribute("data-layout", orient);      // always cols/rows → keeps the axis
+      main.classList.toggle("out-hidden", hidden);
+      orientBtn.innerHTML=ORIENT_ICON[orient];
+      orientBtn.setAttribute("data-tip", orient==="cols"
+        ? "Side-by-side — switch to stacked" : "Stacked — switch to side-by-side");
+      showOut.classList.toggle("show", hidden);   // fade in/out (see .fab CSS)
+      try{ localStorage.setItem("np-orient", orient); localStorage.setItem("np-hidden", hidden?"1":"0"); }catch(_){}
+    }
+    orientBtn.addEventListener("click",()=>{ orient = orient==="cols"?"rows":"cols"; apply(); });
+    hideBtn.addEventListener("click",()=>{ hidden=true; apply(); });
+    showOut.addEventListener("click",()=>{ hidden=false; apply(); selectTab("out"); });
+    // used by run(): guarantee the Output is on screen and selected
+    ensureOutputVisible = ()=>{ if(hidden){ hidden=false; apply(); } selectTab("out"); };
+    // Escape hides the output — even from inside Monaco. Capture phase so it
+    // beats Monaco's own key handling; but yield to Monaco's popups (suggest /
+    // parameter hints / find / rename) so their Escape still dismisses them
+    // first, and only act while the panel is actually showing.
+    document.addEventListener("keydown", e=>{
+      if(e.key!=="Escape" || hidden) return;
+      if(document.querySelector(".monaco-editor .suggest-widget.visible, .monaco-editor .parameter-hints-widget.visible, .monaco-editor .find-widget.visible, .monaco-editor .monaco-editor.rename-box, .monaco-editor .rename-box")) return;
+      hidden=true; apply(); e.preventDefault(); e.stopPropagation();
+    }, true);
+    let dragging=false;
+    gutter.addEventListener("pointerdown",e=>{
+      if(main.classList.contains("out-hidden")) return;
+      dragging=true; gutter.classList.add("drag"); main.classList.add("resizing");
+      gutter.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    gutter.addEventListener("pointermove",e=>{
+      if(!dragging) return;
+      const r=main.getBoundingClientRect();
+      const pct=(main.getAttribute("data-layout")==="rows")
+        ? (e.clientY-r.top)/r.height*100 : (e.clientX-r.left)/r.width*100;
+      split=Math.max(12, Math.min(88, pct)); applySplit();
+    });
+    const endDrag=()=>{ if(!dragging) return; dragging=false; gutter.classList.remove("drag");
+      main.classList.remove("resizing");
+      try{ localStorage.setItem("np-split", Math.round(split)); }catch(_){} };
+    gutter.addEventListener("pointerup", endDrag);
+    gutter.addEventListener("pointercancel", endDrag);
+    gutter.addEventListener("dblclick",()=>{ split=50; applySplit(); try{localStorage.setItem("np-split",50);}catch(_){} });
+    applySplit(); apply();
+  })();
+
+  // ---- lightweight tooltips for [data-tip] chrome (nav buttons, tags, fab) ----
+  (function(){
+    let tipEl=null, timer=null, cur=null;
+    const ensure=()=>{ if(!tipEl){ tipEl=document.createElement("div"); tipEl.id="tooltip"; document.body.appendChild(tipEl); } return tipEl; };
+    function show(el){
+      const t=el.getAttribute("data-tip"); if(!t) return;
+      const tip=ensure(); tip.textContent=t; tip.classList.add("show");
+      const r=el.getBoundingClientRect(), tr=tip.getBoundingClientRect();
+      let left=r.left+r.width/2-tr.width/2;
+      left=Math.max(6, Math.min(left, innerWidth-tr.width-6));
+      let top=r.bottom+7; if(top+tr.height>innerHeight-6) top=r.top-tr.height-7;
+      tip.style.left=left+"px"; tip.style.top=Math.max(6,top)+"px";
+    }
+    const hide=()=>{ if(tipEl) tipEl.classList.remove("show"); };
+    document.addEventListener("mouseover",e=>{
+      const el=e.target.closest("[data-tip]");
+      if(el===cur) return; cur=el; clearTimeout(timer);
+      if(el) timer=setTimeout(()=>show(el),350); else hide();
+    });
+    document.addEventListener("mouseout",e=>{
+      if(e.target.closest("[data-tip]")){ clearTimeout(timer); hide(); cur=null; }
+    });
+    document.addEventListener("click",()=>{ clearTimeout(timer); hide(); });
+    window.addEventListener("scroll",hide,true);
+  })();
+
+  // engine + lsp readiness hooks — all feed the one status line
+  window.__nifiEngineReady=(ok,detail)=>{ st.engine = ok?"ready":"unavailable"; paintStatus(); if(!ok&&detail) print('<span class="err">'+esc(detail)+'</span>'); };
+  window.__nifiLspStatus=(state)=>{ st.lspOn=(state==="live"); paintStatus(); };
+  window.__nifiIndexChanged=(n)=>{ st.lspCount=n|0; if(st.lspOn) paintStatus(); renderOutline(); };
+  window.__nifiParserReady=(ok)=>{ if(ok) runParse(); };
+  window.__nifiSemReady=(ok)=>{ if(ok) runSemCheck(); };
+
+  // ---- shareable link: the code travels in the URL hash (static host) ----
+  function encodeShare(src){
+    return btoa(unescape(encodeURIComponent(src))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  }
+  function decodeShare(s){
+    try{ return decodeURIComponent(escape(atob(s.replace(/-/g,"+").replace(/_/g,"/")))); }catch(_){ return null; }
+  }
+  const shareBtn=$("#shareBtn"), shareHTML=shareBtn.innerHTML;
+  const checkSVG='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 8.4l3 3 6.6-7.2"/></svg>';
+  shareBtn.addEventListener("click",()=>{
+    const url=location.origin+location.pathname+"#c="+encodeShare(window.NifiEditor.getValue());
+    try{ history.replaceState(null,"",url); }catch(_){}
+    const done=()=>{ shareBtn.innerHTML=checkSVG; shareBtn.classList.add("copied");
+      setTimeout(()=>{ shareBtn.innerHTML=shareHTML; shareBtn.classList.remove("copied"); },1400); };
+    if(navigator.clipboard) navigator.clipboard.writeText(url).then(done).catch(()=>prompt("Share link:",url));
+    else prompt("Share link:",url);
+  });
+
+  // editor ready -> load a shared link if present, else the demo; parse on every edit
+  window.NifiEditor.onReady(()=>{
+    window.NifiEditor.onChange(scheduleParse);
+    const shared=(location.hash||"").match(/[#&]c=([^&]+)/);
+    const code=shared?decodeShare(shared[1]):null;
+    if(code!=null){
+      window.NifiEditor.setValue(code);
+      print('<span class="sys">Loaded from a shared link — edit freely and press Run.</span>');
+      runParse(); runSemCheck();
+    } else {
+      loadDemo();
+    }
+  });
   if(window.NifiEngine&&window.NifiEngine.ready) window.__nifiEngineReady(true);
 })();
 </script>
