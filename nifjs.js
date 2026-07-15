@@ -11,9 +11,15 @@
 // comparisons; logical and/or/not AND bitwise and/or/xor/not/shl/shr; if/elif/
 // else and if-EXPRESSIONS; case (statement & expression, incl. ranges); while
 // with break/continue; for over integer ranges AND over collections; inc/dec;
-// seq/array literals (@[…]), len, indexing (get/set), add/pop; objects
-// (construct / field read+write) and tuples; strings (concat, $, len, index,
-// ord/chr); abs/min/max; echo (float-aware); bool.
+// const; enums (values -> ordinals); seq/array literals + `array` indexing, len,
+// index (get/set), add/pop; objects (construct / field read+write) and tuples;
+// strings (concat, $, len, index, ord/chr); echo (float-aware); bool; and a
+// SHIM REGISTRY that maps stdlib / `importc` routines (math.*, strutils.*,
+// parse*, abs/min/max) to their native-JS equivalent — the FFI path.
+//
+// SAFETY: a `var`/`out` parameter (whose mutation can't round-trip through JS's
+// pass-by-value) drops the routine so its callers fall back — never silently
+// wrong. Enum/const/array/etc. that were once crashes or fall-backs are handled.
 //
 // ROBUSTNESS: nifjs never emits a reference to a routine it didn't emit — a call
 // to any proc/func it can't build (a complex stdlib routine, an unsupported
@@ -124,8 +130,12 @@ function isFloatExpr(n){
   if((BINOP[n.tag] || n.tag === "div" || n.tag === "neg") && isList(n.kids[0]) && n.kids[0].tag === "f") return true;
   if(n.tag === "conv" || n.tag === "hconv" || n.tag === "paren" || n.tag === "expr")
     return isFloatExpr(n.kids[n.kids.length - 1]);
+  if((n.tag === "call" || n.tag === "hcall") && isAtom(n.kids[0]) && FLOAT_RET.has(opName(n.kids[0].atom)))
+    return true;                               // a math shim that returns a float
   return false;
 }
+const FLOAT_RET = new Set(["sqrt","cbrt","pow","hypot","ln","log10","log2","exp",
+  "sin","cos","tan","arcsin","arccos","arctan","arctan2","sinh","cosh","tanh","parseFloat"]);
 // address-of / deref wrappers carry no meaning once values are native JS.
 function unwrapAddr(n){
   while(isList(n) && (n.tag==="haddr"||n.tag==="addr"||n.tag==="hderef"||n.tag==="deref"))
@@ -142,6 +152,24 @@ function unwrapAddr(n){
 // Unsupported → clean fall back to nifi, so the emitted JS NEVER references an
 // undefined function (no runtime crash on an un-emittable stdlib routine).
 let _defined = new Set(), _available = null;
+// enum value (mangled symbol) -> its ordinal string, collected from `type` decls.
+let _enumVals = new Map();
+function scanEnums(root){
+  _enumVals = new Map();
+  for(const s of root.kids){
+    if(!isList(s) || s.tag !== "type") continue;
+    for(const c of s.kids){
+      if(!isList(c) || c.tag !== "enum") continue;
+      for(const ef of c.kids){
+        if(isList(ef) && ef.tag === "efld" && isAtom(ef.kids[0])){
+          const tup = ef.kids.find(x => isList(x) && x.tag === "tup");
+          if(tup && tup.kids.length && isAtom(tup.kids[0]))
+            _enumVals.set(mangle(ef.kids[0].atom), tup.kids[0].atom);
+        }
+      }
+    }
+  }
+}
 
 const SKIP_DECLS = new Set(["import","comment","iterator","type","typevars",
   "include","converter","template","macro","pragmas","emit","using"]);
@@ -151,6 +179,7 @@ function emitModule(nodes){
   let root = null;
   for(const nd of nodes){ if(isList(nd) && nd.tag === "stmts"){ root = nd; break; } }
   if(!root) throw Unsupported("module shape (no top-level stmts)");
+  scanEnums(root);                              // enum value -> ordinal, before emit
 
   // 1. collect routine defs (proc AND func) + the top-level statements.
   const routines = [], topStmts = [];
@@ -214,8 +243,16 @@ function emitProc(p){
   const name = mangle(nameNode.atom);
   // locate params list and the body (last stmts)
   const params = k.find(x => isList(x) && x.tag === "params");
-  const args = params ? params.kids.filter(x => isList(x) && x.tag === "param")
-                               .map(pp => mangle(pp.kids[0].atom)) : [];
+  const paramNodes = params ? params.kids.filter(x => isList(x) && x.tag === "param") : [];
+  for(const pp of paramNodes){
+    // a `var`/`out` param has a `(mut …)`/`(out …)` type — mutation through it
+    // can't round-trip in JS (native values, no by-reference), so this routine
+    // isn't safe to transpile: drop it (callers fall back) rather than run wrong.
+    const ty = pp.kids[3];
+    if(isList(ty) && (ty.tag === "mut" || ty.tag === "out"))
+      throw Unsupported("var/out parameter (no pass-by-reference in JS)");
+  }
+  const args = paramNodes.map(pp => mangle(pp.kids[0].atom));
   const body = [...k].reverse().find(x => isList(x) && x.tag === "stmts");
   if(!body) throw Unsupported("proc without body (forward decl / extern)");
   return "function " + name + "(" + args.join(",") + "){\n" + emitStmts(body) + "\n}";
@@ -231,7 +268,8 @@ function emitStmt(s){
       const nm = mangle(s.kids[0].atom);
       return "let " + nm + " = " + zeroOf(s.kids[3]) + ";";
     }
-    case "var": case "gvar": case "let": case "glet": case "cursor": {
+    case "var": case "gvar": case "let": case "glet": case "cursor":
+    case "const": case "gconst": {
       // (var :x . . TYPE INIT?)   INIT is the last child if present & non-'.'
       const nm = mangle(s.kids[0].atom);
       const init = s.kids[s.kids.length - 1];
@@ -365,6 +403,40 @@ const BINOP = { add:"+", sub:"-", mul:"*", lt:"<", le:"<=", gt:">", ge:">=", eq:
                 bitand:"&", bitor:"|", bitxor:"^", shl:"<<", shr:">>", ashr:">>" };
 const BINOP_NOTYPE = { and:"&&", or:"||" };   // logical only — bitwise are the bit* tags
 
+// Shim registry — the native-JS equivalent of a stdlib / `importc` routine,
+// keyed by the nimony proc's base name. This is how nifjs "allows importc" and
+// covers math/strutils/parseutils without a body to transpile: when a called
+// routine isn't one nifjs built itself, and a shim exists, emit the JS directly
+// (native values, no marshaling). A user proc of the same name always wins (it's
+// checked first). Each entry maps the emitted arg strings to a JS expression.
+const SHIMS = {
+  // --- math (operates on JS numbers) ---
+  sqrt:a=>`Math.sqrt(${a[0]})`, cbrt:a=>`Math.cbrt(${a[0]})`,
+  pow:a=>`Math.pow(${a[0]}, ${a[1]})`, hypot:a=>`Math.hypot(${a[0]}, ${a[1]})`,
+  floor:a=>`Math.floor(${a[0]})`, ceil:a=>`Math.ceil(${a[0]})`,
+  round:a=>`Math.round(${a[0]})`, trunc:a=>`Math.trunc(${a[0]})`,
+  ln:a=>`Math.log(${a[0]})`, log10:a=>`Math.log10(${a[0]})`, log2:a=>`Math.log2(${a[0]})`,
+  exp:a=>`Math.exp(${a[0]})`,
+  sin:a=>`Math.sin(${a[0]})`, cos:a=>`Math.cos(${a[0]})`, tan:a=>`Math.tan(${a[0]})`,
+  arcsin:a=>`Math.asin(${a[0]})`, arccos:a=>`Math.acos(${a[0]})`, arctan:a=>`Math.atan(${a[0]})`,
+  arctan2:a=>`Math.atan2(${a[0]}, ${a[1]})`,
+  sinh:a=>`Math.sinh(${a[0]})`, cosh:a=>`Math.cosh(${a[0]})`, tanh:a=>`Math.tanh(${a[0]})`,
+  floorMod:a=>`(((${a[0]}) % (${a[1]})) + (${a[1]})) % (${a[1]})`,
+  // --- strutils / string (JS string; several also work on JS arrays) ---
+  toUpperAscii:a=>`(${a[0]}).toUpperCase()`, toLowerAscii:a=>`(${a[0]}).toLowerCase()`,
+  toUpper:a=>`(${a[0]}).toUpperCase()`, toLower:a=>`(${a[0]}).toLowerCase()`,
+  strip:a=>`(${a[0]}).trim()`,
+  startsWith:a=>`(${a[0]}).startsWith(${a[1]})`, endsWith:a=>`(${a[0]}).endsWith(${a[1]})`,
+  contains:a=>`(${a[0]}).includes(${a[1]})`,
+  repeat:a=>`(${a[0]}).repeat(${a[1]})`,
+  find:a=>`(${a[0]}).indexOf(${a[1]})`, rfind:a=>`(${a[0]}).lastIndexOf(${a[1]})`,
+  replace:a=>`(${a[0]}).split(${a[1]}).join(${a[2]})`,
+  join:a=>`(${a[0]}).join(${a.length>1?a[1]:'""'})`,
+  split:a=>`(${a[0]}).split(${a[1]})`,
+  parseInt:a=>`parseInt(${a[0]}, 10)`, parseFloat:a=>`parseFloat(${a[0]})`,
+  intToStr:a=>`String(${a[0]})`,
+};
+
 function emitCallLike(s){
   // (call CALLEE ARGS...) or (cmd CALLEE ARGS...)
   const callee = s.kids[0];
@@ -408,13 +480,17 @@ function emitCallLike(s){
   if(name === "max") return "Math.max(" + rawArgs.map(emitExpr).join(", ") + ")";
   if(name === "pop") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".pop())";
   if(!isAtom(callee)) throw Unsupported("indirect call");
-  // A user/stdlib routine: emit the call only if it's a routine we actually
-  // emitted (or, while emitting bodies, one that's defined). Otherwise fall back
-  // — never emit a reference to a function that isn't there.
-  const mn = mangle(callee.atom);
-  if(_available ? !_available.has(mn) : !_defined.has(mn))
-    throw Unsupported("call to '" + opName(callee.atom) + "'");
-  return mn + "(" + rawArgs.map(emitExpr).join(", ") + ")";
+  const base = opName(callee.atom), mn = mangle(callee.atom);
+  // 1. a routine nifjs actually built (user proc, or a transpilable stdlib one)
+  //    takes precedence — even over a same-named shim.
+  if(_available ? _available.has(mn) : _defined.has(mn))
+    return mn + "(" + rawArgs.map(emitExpr).join(", ") + ")";
+  // 2. a native-JS shim for a stdlib / importc routine (the FFI path). Note this
+  //    also fires for an importc proc: its body doesn't transpile, so it's not in
+  //    the emitted set, and if a shim exists we emit the native equivalent.
+  if(SHIMS[base]) return SHIMS[base](rawArgs.map(emitExpr));
+  // 3. otherwise fall back — never emit a reference to a function we didn't build.
+  throw Unsupported("call to '" + base + "'");
 }
 
 function emitExpr(e){
@@ -422,6 +498,8 @@ function emitExpr(e){
   if(isChr(e)) return JSON.stringify(String.fromCharCode(e.chr));
   if(isAtom(e)){
     const a = e.atom;
+    const mn = mangle(a);
+    if(_enumVals.has(mn)) return _enumVals.get(mn);   // enum value -> its ordinal
     if(a === "true") return "true";
     if(a === "false") return "false";
     if(a === "nil") return "null";
@@ -465,6 +543,8 @@ function emitExpr(e){
       return "[" + e.kids.slice(1).map(k =>
         (isList(k) && k.tag === "kv") ? emitExpr(k.kids[1]) : emitExpr(k)).join(", ") + "]";
     case "tupat": return emitExpr(e.kids[0]) + "[" + emitExpr(e.kids[1]) + "]";     // t[i]
+    case "arrat": return emitExpr(e.kids[0]) + "[" + emitExpr(e.kids[1]) + "]";     // array a[i]
+    case "suf": return emitExpr(e.kids[0]);    // typed literal suffix: (suf 5 "i64") -> 5
     case "prefix": {                           // (prefix OP X) — @seq / $tostring
       const op = isAtom(e.kids[0]) ? opName(e.kids[0].atom) : "";
       const x = e.kids[e.kids.length-1];
