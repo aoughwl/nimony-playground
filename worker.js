@@ -58,8 +58,7 @@ let nifiRunMain = null, nifiRunPromise = null;
 function ensureRunBundle(){
   if(nifiRunMain) return Promise.resolve();
   if(!nifiRunPromise)
-    nifiRunPromise = fetch("nifi_run.js")
-      .then(r=>{ if(!r.ok) throw new Error("nifi_run.js HTTP "+r.status); return r.text(); })
+    nifiRunPromise = loadText("nifi_run.js")
       .then(txt=>{ nifiRunMain = new Function(txt + "\nmain(0, []);"); });
   return nifiRunPromise;
 }
@@ -94,12 +93,30 @@ function buildWarmSem(){
   if(!nsCheckFn && !semMain) semMain = new Function(semJsText + "\nmain(0, []);");
 }
 
+// Offline single-file build: the main thread hands the worker its bundle texts
+// and the stdlib bytes via the `init` message, because a file:// worker can't
+// fetch() sibling assets (origin 'null'). `__assets` holds them when present;
+// otherwise we fetch over HTTP as usual (the hosted site). Same worker.js works
+// in both modes.
+let __assets = null, __booted = false;
+function loadText(name){
+  if(__assets && __assets.bundles && __assets.bundles[name] != null)
+    return Promise.resolve(__assets.bundles[name]);
+  return fetch(name).then(r=>{ if(!r.ok) throw new Error(name+" HTTP "+r.status); return r.text(); });
+}
+function loadStdlibBytes(){
+  if(__assets && __assets.stdlibB64 != null){
+    const bin = atob(__assets.stdlibB64), u = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i);
+    return Promise.resolve(u.buffer);
+  }
+  return fetch("assets/nimsem-stdlib.bin")
+    .then(r=>{ if(!r.ok) throw new Error("stdlib asset HTTP "+r.status); return r.arrayBuffer(); });
+}
+
 async function boot(){
   const [semJs, nifiJs, nifiVmJs, asset] = await Promise.all([
-    fetch("nimsem.js").then(r=>{ if(!r.ok) throw new Error("nimsem.js HTTP "+r.status); return r.text(); }),
-    fetch("nifi.js").then(r=>{ if(!r.ok) throw new Error("nifi.js HTTP "+r.status); return r.text(); }),
-    fetch("nifi_vm.js").then(r=>{ if(!r.ok) throw new Error("nifi_vm.js HTTP "+r.status); return r.text(); }),
-    fetch("assets/nimsem-stdlib.bin").then(r=>{ if(!r.ok) throw new Error("stdlib asset HTTP "+r.status); return r.arrayBuffer(); })
+    loadText("nimsem.js"), loadText("nifi.js"), loadText("nifi_vm.js"), loadStdlibBytes()
   ]);
   stdlibBlob = bytesToLatin1(asset);
   semJsText = semJs;
@@ -251,6 +268,16 @@ async function handleRunRung(msg, id){
 self.onmessage = (ev) => {
   const msg = ev.data || {};
   const id = msg.id;
+  // Boot handshake: the main thread posts `init` once, right after spawn. In the
+  // hosted mode assets is null (worker fetches its own bundles); in the offline
+  // single-file mode it carries the inlined bundle texts + stdlib.
+  if(msg.type === "init"){
+    if(__booted) return; __booted = true;
+    __assets = msg.assets || null;
+    boot().then(()=> self.postMessage({ type:"ready" }))
+          .catch(e=> self.postMessage({ type:"loaderr", message: String(e && e.message || e) }));
+    return;
+  }
   try{
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
     if(msg.type === "sem"){
@@ -294,5 +321,5 @@ self.onmessage = (ev) => {
   }
 };
 
-boot().then(()=> self.postMessage({ type:"ready" }))
-      .catch(e=> self.postMessage({ type:"loaderr", message: String(e && e.message || e) }));
+// Boot is now kicked off by the `init` message (see self.onmessage) so the
+// offline build can hand over its inlined bundles before we try to fetch them.

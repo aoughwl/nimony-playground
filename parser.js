@@ -39,6 +39,15 @@
 
   function loadBundle(){
     if(loadPromise) return loadPromise;
+    // Offline single-file build: the parser bundle is inlined on the page (a
+    // file:// page can't fetch() it), so use that text directly when present.
+    const inline = (typeof window !== "undefined" && window.__NIFI_INLINE);
+    if(inline && inline.bundles && inline.bundles["nifparser.js"]){
+      const t = inline.bundles["nifparser.js"];
+      bundleText = t; compiledMain = new Function(t + "\nmain(0, []);");
+      loadPromise = Promise.resolve(t);
+      return loadPromise;
+    }
     loadPromise = fetch("nifparser.js").then(r=>{
       if(!r.ok) throw new Error("failed to load parser (nifparser.js): HTTP "+r.status);
       return r.text();

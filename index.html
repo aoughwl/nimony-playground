@@ -391,6 +391,9 @@
     <button id="shareBtn" data-tip="Copy a shareable link to this code">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.4 9.6l3.2-3.2"/><path d="M8.7 4.6l1-1a2.15 2.15 0 013 3l-1.6 1.6"/><path d="M7.3 11.4l-1 1a2.15 2.15 0 01-3-3l1.6-1.6"/></svg>
     </button>
+    <button id="offlineBtn" data-tip="Download a self-contained .html that runs offline from a local file">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v6.9"/><path d="M5.1 6.5L8 9.4l2.9-2.9"/><path d="M3 12.6h10"/></svg>
+    </button>
     <button id="themeBtn" data-tip="Toggle light / dark theme">
       <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 000 10.8z" fill="currentColor"/></svg>
     </button>
@@ -490,13 +493,15 @@ window.NifiOpts = window.NifiOpts || { curly:false };
 <!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
      refresh (the big bundles are fetched separately and change rarely). -->
 <script src="examples.js?v=6"></script>
-<script src="pipeline.js?v=10"></script>
+<script src="pipeline.js?v=11"></script>
 <script src="engine.js?v=8"></script>
-<script src="parser.js?v=8"></script>
+<script src="parser.js?v=9"></script>
 <script src="sem.js?v=8"></script>
-<script src="editor.js?v=7"></script>
+<script src="editor.js?v=8"></script>
 <script src="lsp.js?v=7"></script>
 <script src="curlyconvert.js?v=7"></script>
+<script src="assemble.js?v=1"></script>
+<script src="offline.js?v=1"></script>
 <script>
 (function(){
   const $ = s => document.querySelector(s);

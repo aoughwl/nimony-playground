@@ -15,9 +15,20 @@
   const pipe = { ready:false, sem:null, run:null, stop:null, alive:false };
   let worker = null, seq = 0, pending = new Map(), inflightRun = null;
 
+  // The offline single-file build exposes window.__NIFI_INLINE with the worker
+  // source + all bundle texts; use it to (a) build the Worker from a Blob URL
+  // (a file:// page can't `new Worker("worker.js")` — origin 'null'), and (b)
+  // hand the bundles to the worker via `init` since it can't fetch() them.
+  const INLINE = (typeof window !== "undefined" && window.__NIFI_INLINE) || null;
+
   function spawn(){
     pipe.ready = false; pipe.alive = false;
-    worker = new Worker("worker.js?v=14");
+    if(INLINE && INLINE.workerText){
+      const blob = new Blob([INLINE.workerText], { type:"text/javascript" });
+      worker = new Worker(URL.createObjectURL(blob));
+    }else{
+      worker = new Worker("worker.js?v=15");
+    }
     worker.onmessage = (ev) => {
       const m = ev.data || {};
       if(m.type === "ready"){
@@ -47,6 +58,10 @@
       try{ worker.terminate(); }catch(_){}
       spawn();
     };
+    // Kick off the worker's boot. Hosted: assets null (worker fetches). Offline:
+    // hand over the inlined bundle texts + stdlib so it never touches the network.
+    worker.postMessage({ type:"init",
+      assets: INLINE ? { bundles: INLINE.bundles, stdlibB64: INLINE.stdlibB64 } : null });
   }
 
   function request(type, extra){
