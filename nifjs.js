@@ -6,14 +6,21 @@
 // exact linear-memory fidelity (int64 wraparound, ptr/ARC semantics) for ~1000x
 // speed — so it's the FAST path, with nifi as the faithful fallback.
 //
-// Coverage is a deliberate (growing) subset: procs + recursion; int & float
-// arithmetic (float `/` kept distinct from int `div`) and comparisons; logical
-// and/or/not AND bitwise and/or/xor/not/shl/shr; if/elif/else; case (statement
-// & expression, incl. ranges); while with break/continue; for over integer
-// ranges AND over collections; inc/dec; seq/array literals (@[…]), len,
-// indexing, add/push; string concat & $; echo (float-aware); bool. Anything
-// outside it makes emit() throw `Unsupported(...)`, and the caller falls back to
-// the faithful nifi engines — so it's never less correct.
+// Coverage is a deliberate (growing) subset: procs + recursion (incl. mutual);
+// int & float arithmetic (float `/` kept distinct from int `div`) and
+// comparisons; logical and/or/not AND bitwise and/or/xor/not/shl/shr; if/elif/
+// else and if-EXPRESSIONS; case (statement & expression, incl. ranges); while
+// with break/continue; for over integer ranges AND over collections; inc/dec;
+// seq/array literals (@[…]), len, indexing (get/set), add/pop; objects
+// (construct / field read+write) and tuples; strings (concat, $, len, index,
+// ord/chr); abs/min/max; echo (float-aware); bool.
+//
+// ROBUSTNESS: nifjs never emits a reference to a routine it didn't emit — a call
+// to any proc/func it can't build (a complex stdlib routine, an unsupported
+// node) throws `Unsupported(...)`, so the WHOLE program falls back to the
+// faithful nifi engines instead of crashing on an undefined function. Emitting a
+// routine is best-effort and isolated: one un-emittable routine only forces a
+// fall back for programs that actually reach it.
 (function(global){
 "use strict";
 
@@ -129,31 +136,70 @@ function unwrapAddr(n){
 // ---------------------------------------------------------------------------
 // 3. emitter: node -> JS source string
 // ---------------------------------------------------------------------------
+// Routine resolution state (set per emitModule). `_defined` = every proc/func
+// name in the module; `_available` = the ones that actually emitted (null while
+// still emitting bodies). A call to a name not in the active set throws
+// Unsupported → clean fall back to nifi, so the emitted JS NEVER references an
+// undefined function (no runtime crash on an un-emittable stdlib routine).
+let _defined = new Set(), _available = null;
+
+const SKIP_DECLS = new Set(["import","comment","iterator","type","typevars",
+  "include","converter","template","macro","pragmas","emit","using"]);
+
 function emitModule(nodes){
   // find the top-level (stmts ...) of the main module
   let root = null;
   for(const nd of nodes){ if(isList(nd) && nd.tag === "stmts"){ root = nd; break; } }
   if(!root) throw Unsupported("module shape (no top-level stmts)");
 
-  const procs = [], top = [];
+  // 1. collect routine defs (proc AND func) + the top-level statements.
+  const routines = [], topStmts = [];
   for(const s of root.kids){
     if(!isList(s)) continue;
-    switch(s.tag){
-      case "proc": procs.push(emitProc(s)); break;
-      case "import": case "comment": case "iterator": case "func":
-      case "type": case "typevars": case "include": case "converter":
-      case "template": case "macro": case "pragmas": case "emit": case "using":
-        break;                               // system helpers / metadata: skip
-      default: top.push(emitStmt(s));
+    if((s.tag === "proc" || s.tag === "func") && isAtom(s.kids[0]))
+      routines.push({ mn: mangle(s.kids[0].atom), node: s });
+    else if(!SKIP_DECLS.has(s.tag))
+      topStmts.push(s);
+  }
+  _defined = new Set(routines.map(r => r.mn));
+  _available = null;
+
+  // 2. emit each routine independently; one that hits an unsupported node just
+  //    drops out (its callers fall back) instead of failing the whole module.
+  const emitted = new Map();     // mn -> js
+  const failed = new Set();
+  for(const r of routines){
+    if(emitted.has(r.mn) || failed.has(r.mn)) continue;
+    try { emitted.set(r.mn, emitProc(r.node)); }
+    catch(e){ if(e && e.__nifjsUnsupported) failed.add(r.mn); else throw e; }
+  }
+  // 3. fixpoint: any emitted routine that references a failed one is itself
+  //    unavailable (so we never emit a call to a dropped routine).
+  let changed = true;
+  while(changed){
+    changed = false;
+    for(const [mn, js] of emitted){
+      for(const f of failed){
+        if(mn !== f && new RegExp("\\b" + f + "\\b").test(js)){
+          emitted.delete(mn); failed.add(mn); changed = true; break;
+        }
+      }
+      if(changed) break;
     }
   }
+  _available = new Set(emitted.keys());
+
+  // 4. emit top-level with `_available` active — a call to a dropped/unknown
+  //    routine throws here and the whole module falls back cleanly.
+  const top = topStmts.map(emitStmt);
+
   return (
     "'use strict';\n" +
     "let __out='';\n" +
     "function __w(x){ __out += (x===true?'true':x===false?'false':String(x)); }\n" +
     // nimony prints a float with a decimal point (7.0, not 7); JS String drops it.
     "function __wf(x){ __out += (Number.isInteger(x) ? x + '.0' : String(x)); }\n" +
-    procs.join("\n") + "\n" +
+    [...emitted.values()].join("\n") + "\n" +
     "function __main(){\n" + top.join("\n") + "\n}\n" +
     "__main();\n" +
     "return __out;\n"
@@ -227,6 +273,19 @@ function emitIf(s){
     else throw Unsupported("if-branch '" + br.tag + "'");
   }
   return parts.join(" else ");
+}
+
+// if-EXPRESSION: (if (elif COND (expr V)) … (else (expr V))) — an IIFE that
+// returns the chosen branch's value.
+function emitIfExpr(e){
+  const parts = []; let elsePart = "";
+  for(const br of e.kids){
+    if(!isList(br)) continue;
+    if(br.tag === "elif") parts.push("if(" + emitExpr(br.kids[0]) + "){ return " + emitExpr(br.kids[1]) + "; }");
+    else if(br.tag === "else") elsePart = " else { return " + emitExpr(br.kids[0]) + "; }";
+    else throw Unsupported("if-expr branch '" + br.tag + "'");
+  }
+  return "(function(){ " + parts.join(" else ") + elsePart + " })()";
 }
 
 // Dig a for-loop iterable down to the underlying collection: nimony lowers
@@ -340,8 +399,22 @@ function emitCallLike(s){
     if(name === "newSeqOfCap") return "[]";
     return "new Array(" + emitExpr(rawArgs[rawArgs.length-1]) + ").fill(0)";
   }
+  // char <-> int. chars are 1-char JS strings (so string indexing / echo just
+  // work); ord reads the code, chr builds the char.
+  if(name === "chr" || name === "toChar") return "String.fromCharCode(" + emitExpr(rawArgs[0]) + ")";
+  if(name === "ord") return "(" + emitExpr(rawArgs[0]) + ").charCodeAt(0)";
+  if(name === "abs") return "Math.abs(" + emitExpr(rawArgs[0]) + ")";
+  if(name === "min") return "Math.min(" + rawArgs.map(emitExpr).join(", ") + ")";
+  if(name === "max") return "Math.max(" + rawArgs.map(emitExpr).join(", ") + ")";
+  if(name === "pop") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".pop())";
   if(!isAtom(callee)) throw Unsupported("indirect call");
-  return mangle(callee.atom) + "(" + rawArgs.map(emitExpr).join(", ") + ")";
+  // A user/stdlib routine: emit the call only if it's a routine we actually
+  // emitted (or, while emitting bodies, one that's defined). Otherwise fall back
+  // — never emit a reference to a function that isn't there.
+  const mn = mangle(callee.atom);
+  if(_available ? !_available.has(mn) : !_defined.has(mn))
+    throw Unsupported("call to '" + opName(callee.atom) + "'");
+  return mn + "(" + rawArgs.map(emitExpr).join(", ") + ")";
 }
 
 function emitExpr(e){
@@ -377,10 +450,21 @@ function emitExpr(e){
     case "bitnot": return "(~" + emitExpr(e.kids[e.kids.length-1]) + ")";  // bitwise (int)
     case "call": case "cmd": case "hcall": return emitCallLike(e);
     case "case": return emitCase(e, true);     // case-expression
+    case "if": return emitIfExpr(e);           // if-expression
     case "aconstr": {                          // array constructor: (aconstr TYPE e0 e1 …)
       return "[" + e.kids.slice(1).map(emitExpr).join(", ") + "]";
     }
     case "bracket": return "[" + e.kids.map(emitExpr).join(", ") + "]";   // [a, b, c]
+    case "oconstr": {                          // object ctor: (oconstr TYPE (kv f v)…) -> {f: v}
+      const fields = e.kids.slice(1).filter(k => isList(k) && k.tag === "kv")
+        .map(kv => mangle(kv.kids[0].atom) + ": " + emitExpr(kv.kids[1]));
+      return "({" + fields.join(", ") + "})";
+    }
+    case "dot": return emitExpr(e.kids[0]) + "." + mangle(e.kids[1].atom);   // field access p.f
+    case "tupconstr":                          // tuple -> array (named `(kv f v)` or positional)
+      return "[" + e.kids.slice(1).map(k =>
+        (isList(k) && k.tag === "kv") ? emitExpr(k.kids[1]) : emitExpr(k)).join(", ") + "]";
+    case "tupat": return emitExpr(e.kids[0]) + "[" + emitExpr(e.kids[1]) + "]";     // t[i]
     case "prefix": {                           // (prefix OP X) — @seq / $tostring
       const op = isAtom(e.kids[0]) ? opName(e.kids[0].atom) : "";
       const x = e.kids[e.kids.length-1];
@@ -394,7 +478,12 @@ function emitExpr(e){
       throw Unsupported("infix '" + op + "'");
     }
     case "paren": case "expr": return "(" + emitExpr(e.kids[e.kids.length-1]) + ")";
-    case "conv": case "hconv": case "cast": return emitExpr(e.kids[e.kids.length-1]);  // numeric conv: identity in JS
+    case "conv": case "hconv": case "cast": {   // numeric conv: identity in JS…
+      const v = e.kids[e.kids.length-1], ty = e.kids[0];
+      // …except ord('A') lowers to (conv (i N) 'A') — a char→int widening.
+      if(isChr(v) && isList(ty) && (ty.tag === "i" || ty.tag === "u")) return String(v.chr);
+      return emitExpr(v);
+    }
     case "haddr": case "addr": case "hderef": case "deref": return emitExpr(e.kids[e.kids.length-1]);  // no pointers in JS
     case "true": return "true";
     case "false": return "false";
@@ -408,6 +497,9 @@ function zeroOf(typeNode){
     if(typeNode.tag === "i" || typeNode.tag === "u") return "0";
     if(typeNode.tag === "f") return "0";
     if(typeNode.tag === "bool") return "false";
+    if(typeNode.tag === "object") return "{}";
+    if(typeNode.tag === "tuple") return "[]";
+    if(typeNode.tag === "seq" || typeNode.tag === "array") return "[]";
   }
   if(isAtom(typeNode)){
     const t = opName(typeNode.atom);
