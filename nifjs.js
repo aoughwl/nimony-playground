@@ -6,12 +6,14 @@
 // exact linear-memory fidelity (int64 wraparound, ptr/ARC semantics) for ~1000x
 // speed — so it's the FAST path, with nifi as the faithful fallback.
 //
-// Coverage is a deliberate (growing) subset: procs + recursion, int/float
-// arithmetic & comparisons, if/elif/else, case (stmt & expr, incl. ranges),
-// while, for over integer ranges AND over collections, inc/dec, seq/array
-// literals (@[…]), len, indexing, add/push, string concat & $, echo, bool.
-// Anything outside it makes emit() throw `Unsupported(...)`, and the caller
-// falls back to the faithful nifi engines — so it's never less correct.
+// Coverage is a deliberate (growing) subset: procs + recursion; int & float
+// arithmetic (float `/` kept distinct from int `div`) and comparisons; logical
+// and/or/not AND bitwise and/or/xor/not/shl/shr; if/elif/else; case (statement
+// & expression, incl. ranges); while with break/continue; for over integer
+// ranges AND over collections; inc/dec; seq/array literals (@[…]), len,
+// indexing, add/push; string concat & $; echo (float-aware); bool. Anything
+// outside it makes emit() throw `Unsupported(...)`, and the caller falls back to
+// the faithful nifi engines — so it's never less correct.
 (function(global){
 "use strict";
 
@@ -104,6 +106,19 @@ function opName(sym){
 }
 function isIntLit(a){ return /^-?\d+$/.test(a); }
 function isFloatLit(a){ return /^-?\d+\.\d+([eE][-+]?\d+)?$/.test(a); }
+// Best-effort "is this expression statically a float?" — used only to pick the
+// float-preserving writer (7.0 vs 7). A float literal, or an arithmetic op whose
+// result-type child is `(f …)`. A bare float VAR can't be told apart here (no
+// type tracking), so those still print like an int — a documented divergence.
+function isFloatExpr(n){
+  if(isAtom(n)) return isFloatLit(n.atom);
+  if(!isList(n)) return false;
+  if(n.tag === "f" || n.tag === "fconv") return true;
+  if((BINOP[n.tag] || n.tag === "div" || n.tag === "neg") && isList(n.kids[0]) && n.kids[0].tag === "f") return true;
+  if(n.tag === "conv" || n.tag === "hconv" || n.tag === "paren" || n.tag === "expr")
+    return isFloatExpr(n.kids[n.kids.length - 1]);
+  return false;
+}
 // address-of / deref wrappers carry no meaning once values are native JS.
 function unwrapAddr(n){
   while(isList(n) && (n.tag==="haddr"||n.tag==="addr"||n.tag==="hderef"||n.tag==="deref"))
@@ -136,6 +151,8 @@ function emitModule(nodes){
     "'use strict';\n" +
     "let __out='';\n" +
     "function __w(x){ __out += (x===true?'true':x===false?'false':String(x)); }\n" +
+    // nimony prints a float with a decimal point (7.0, not 7); JS String drops it.
+    "function __wf(x){ __out += (Number.isInteger(x) ? x + '.0' : String(x)); }\n" +
     procs.join("\n") + "\n" +
     "function __main(){\n" + top.join("\n") + "\n}\n" +
     "__main();\n" +
@@ -191,6 +208,7 @@ function emitStmt(s){
     }
     case "discard": return s.kids[0] && !(isAtom(s.kids[0]) && s.kids[0].atom===".") ? emitExpr(s.kids[0]) + ";" : ";";
     case "break": return "break;";
+    case "continue": return "continue;";
     case "block": {                           // (block . BODY) or (block :lbl BODY)
       const b = [...s.kids].reverse().find(x => isList(x) && x.tag === "stmts");
       return "{\n" + (b ? emitStmts(b) : "") + "\n}";
@@ -281,20 +299,24 @@ function emitFor(s){
   return "for(const " + v + " of " + emitExpr(collOf(iter)) + "){\n" + emitStmts(body) + "\n}";
 }
 
-// arithmetic/relational tags whose FIRST kid is the result-type node (skip it).
-const BINOP = { add:"+", sub:"-", mul:"*", lt:"<", le:"<=", gt:">", ge:">=", eq:"===", neq:"!==" };
-const BINOP_NOTYPE = { and:"&&", or:"||" };
+// arithmetic/relational/bitwise tags whose FIRST kid is the result-type node
+// (skipped). Bitwise ops are correct within JS's 32-bit bitwise envelope — a
+// shift/mask past 2^31 diverges (see the fidelity note); that's the fast path.
+const BINOP = { add:"+", sub:"-", mul:"*", lt:"<", le:"<=", gt:">", ge:">=", eq:"===", neq:"!==",
+                bitand:"&", bitor:"|", bitxor:"^", shl:"<<", shr:">>", ashr:">>" };
+const BINOP_NOTYPE = { and:"&&", or:"||" };   // logical only — bitwise are the bit* tags
 
 function emitCallLike(s){
   // (call CALLEE ARGS...) or (cmd CALLEE ARGS...)
   const callee = s.kids[0];
   const name = isAtom(callee) ? opName(callee.atom) : null;
   const rawArgs = s.kids.slice(1);
-  // echo lowering: write.N.syncio(stdout, x) -> __w(x)
+  // echo lowering: write.N.syncio(stdout, x) -> __w(x). A statically-float value
+  // is written with __wf so integer-valued floats keep their ".0".
   if(name === "write" || name === "writeLine" || name === "echo"){
     // args: [stdout, value]  (or just [value] for echo)
     const val = rawArgs.length >= 2 ? rawArgs[1] : rawArgs[0];
-    return "__w(" + emitExpr(val) + ")";
+    return (isFloatExpr(val) ? "__wf(" : "__w(") + emitExpr(val) + ")";
   }
   if(name === "&") return "(" + rawArgs.map(emitExpr).join(" + ") + ")";     // string concat
   if(name === "inc" || name === "dec"){          // (cmd inc (haddr x) [k]) -> x += k
@@ -344,12 +366,15 @@ function emitExpr(e){
   }
   if(BINOP_NOTYPE[t]) return "(" + emitExpr(e.kids[0]) + " " + BINOP_NOTYPE[t] + " " + emitExpr(e.kids[1]) + ")";
   switch(t){
-    case "div": { const a = e.kids[e.kids.length-2], b = e.kids[e.kids.length-1];
+    case "div": {                              // int `div` truncates; float `/` shares this tag
+      const ty = e.kids[0], a = e.kids[e.kids.length-2], b = e.kids[e.kids.length-1];
+      if(isList(ty) && ty.tag === "f") return "(" + emitExpr(a) + " / " + emitExpr(b) + ")";
       return "(Math.trunc(" + emitExpr(a) + " / " + emitExpr(b) + "))"; }
     case "mod": { const a = e.kids[e.kids.length-2], b = e.kids[e.kids.length-1];
       return "(" + emitExpr(a) + " % " + emitExpr(b) + ")"; }
     case "neg": return "(-" + emitExpr(e.kids[e.kids.length-1]) + ")";
-    case "not": return "(!" + emitExpr(e.kids[0]) + ")";
+    case "not": return "(!" + emitExpr(e.kids[0]) + ")";        // logical (bool)
+    case "bitnot": return "(~" + emitExpr(e.kids[e.kids.length-1]) + ")";  // bitwise (int)
     case "call": case "cmd": case "hcall": return emitCallLike(e);
     case "case": return emitCase(e, true);     // case-expression
     case "aconstr": {                          // array constructor: (aconstr TYPE e0 e1 …)
