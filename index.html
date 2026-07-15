@@ -670,9 +670,17 @@ window.NifiOpts = window.NifiOpts || { curly:false };
     const lines = window.NifiEditor.getValue().split("\n");
     const marks = [], problems = [];
     for(const d of syntaxDiags){
-      const c = (d.col|0)+1, s = snapCol(d.message, lines[d.line-1]||"", c);
-      marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:d.message, severity:"error" });
-      problems.push({ line:d.line, col:s.col, message:d.message, severity:"error" });
+      const c = (d.col|0)+1;
+      // nifparser now emits structured, recoverable diagnostics with a real span
+      // and severity. Prefer its own span; fall back to the identifier-snap
+      // heuristic only when it gave a bare point. Honor severity so style
+      // warnings don't show as errors / block Run.
+      const s = (d.endCol != null && d.endCol > d.col)
+        ? { col:c, endCol:(d.endCol|0)+1 }
+        : snapCol(d.message, lines[d.line-1]||"", c);
+      const sev = d.severity || "error";
+      marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:d.message, severity:sev });
+      problems.push({ line:d.line, col:s.col, message:d.message, severity:sev });
     }
     for(const d of semDiags){
       if(d.line < 1){                     // unknown location (internal checker error):
