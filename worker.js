@@ -125,7 +125,17 @@ async function boot(){
   nifiMain   = new Function(nifiJs   + "\nmain(0, []);");
   nifiVmMain = new Function(nifiVmJs + "\nmain(0, []);");
   buildWarmSem();
+  // nifjs — the .s.nif -> native-JS transpiler ("Fast run"). Small hand-written
+  // JS (not a compiled bundle); load it into this worker scope so the fast path
+  // runs here (terminable via Stop). Best-effort: if it's missing, fast run just
+  // falls back to nifi.
+  try{
+    const njsText = await loadText("nifjs.js");
+    (new Function(njsText + "\n; globalThis.__NifiJs = (typeof NifiJs!=='undefined'?NifiJs:null);"))();
+    nifjsApi = globalThis.__NifiJs || null;
+  }catch(_){ nifjsApi = null; }
 }
+let nifjsApi = null;
 
 // --- nimsem: .p.nif -> .s.nif + diagnostics ----------------------------------
 function parseDiags(raw){
@@ -264,6 +274,41 @@ async function handleRunRung(msg, id){
   }
 }
 
+// --- fast run: nifjs transpiles the typed .s.nif to native JS and runs it here
+//     (~native-JS speed, and no bump-allocator OOM). On ANY node nifjs doesn't
+//     support — or if nifjs failed to load — it falls back to the faithful nifi
+//     engines (runSnif), so correctness is never worse than a normal Run. ------
+function handleFastRun(msg, id){
+  try{
+    const { snif, diags } = semCompile(msg.pnif);
+    if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
+    if(nifjsApi){
+      try{
+        const out = nifjsApi.run(snif);
+        self.postMessage({ id, ok:true, stdout: out, stderr:"", exitCode:0, engine:"nifjs", diags });
+        return;
+      }catch(e){ /* unsupported node or a fast-path error -> fall back to nifi */ }
+    }
+    let res;
+    try{ res = runSnif(snif, msg.stdin); }
+    catch(e){
+      const base = globalThis.__nifi_err || "";
+      if(e && e.__isExit)
+        res = { stdout: globalThis.__nifi_out||"", stderr: base, exitCode: parseInt(String(e.message).replace(/\D/g,""),10)||0 };
+      else if(e && (e.__oom || isMemoryError(e)))
+        res = { stdout: globalThis.__nifi_out||"", oom:true, exitCode:137, stderr: base +
+          "out of memory: this program allocated more than the in-browser interpreter's fixed heap. "+
+          "The ⚡ Fast run path avoids this for supported programs; this one fell back to the interpreter." };
+      else
+        res = { stdout: globalThis.__nifi_out||"", exitCode:1, stderr: base + "runtime error: " + (e && e.message||e) };
+    }
+    res.diags = diags; res.fellBack = true;
+    self.postMessage(Object.assign({ id, ok:true }, res));
+  }catch(e){
+    self.postMessage({ id, ok:false, message: String(e && e.message || e) });
+  }
+}
+
 // --- message loop ------------------------------------------------------------
 self.onmessage = (ev) => {
   const msg = ev.data || {};
@@ -280,6 +325,7 @@ self.onmessage = (ev) => {
   }
   try{
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
+    if(msg.type === "fastrun"){ handleFastRun(msg, id); return; }
     if(msg.type === "sem"){
       const { snif, diags, cached } = semCompile(msg.pnif);
       self.postMessage({ id, ok:true, snif, diags, cached });

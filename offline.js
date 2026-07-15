@@ -11,7 +11,7 @@
   // DOM) so the download is deterministic even after the page mutates.
   var APP_SCRIPTS = ["examples.js","pipeline.js","engine.js","parser.js","sem.js",
                      "editor.js","lsp.js","curlyconvert.js","assemble.js","offline.js"];
-  var BUNDLES = ["worker.js","nifparser.js","nimsem.js","nifi.js","nifi_vm.js","nifi_run.js"];
+  var BUNDLES = ["worker.js","nifparser.js","nimsem.js","nifi.js","nifi_vm.js","nifi_run.js","nifjs.js"];
 
   // ArrayBuffer -> base64, chunked so String.fromCharCode doesn't blow the call
   // stack on the ~4.9 MB stdlib blob.

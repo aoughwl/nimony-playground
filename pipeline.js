@@ -27,7 +27,7 @@
       const blob = new Blob([INLINE.workerText], { type:"text/javascript" });
       worker = new Worker(URL.createObjectURL(blob));
     }else{
-      worker = new Worker("worker.js?v=15");
+      worker = new Worker("worker.js?v=16");
     }
     worker.onmessage = (ev) => {
       const m = ev.data || {};
@@ -69,7 +69,7 @@
       if(!worker){ reject(new Error("pipeline not started")); return; }
       const id = ++seq;
       pending.set(id, { resolve, reject });
-      if(type === "run") inflightRun = id;
+      if(type === "run" || type === "fastrun") inflightRun = id;
       worker.postMessage(Object.assign({ id, type }, extra));
     });
   }
@@ -79,6 +79,8 @@
   // run rung: execute on the tree-walker with the run emitter on, returning the
   // serialized execution NIF (see worker.js handleRunRung). Lazy-loads nifi_run.js.
   pipe.runrung = (pnif, stdin) => request("runrung", { pnif:String(pnif), stdin:String(stdin||"") });
+  // Fast run: nifjs (.s.nif -> native JS) in the worker, falling back to nifi.
+  pipe.fastrun = (pnif, stdin) => request("fastrun", { pnif:String(pnif), stdin:String(stdin||"") });
 
   // Kill the in-flight run (if any) and hand back a fresh worker. Any pending
   // request is rejected with a `stopped` flag so callers can distinguish a user

@@ -55,7 +55,7 @@
 
   // Live compile the editor buffer and run it in the worker. Same
   // {stdout,stderr,exitCode,diags} shape as before. Returns a Promise.
-  async function compileAndRun(source, stdin){
+  async function compileAndRun(source, stdin, fast){
     if(!(window.NifiParser && window.NifiParser.ready))
       return { stdout:"", stderr:"parser still loading…", exitCode:1 };
     if(!(window.NifiPipe && window.NifiPipe.ready))
@@ -68,21 +68,22 @@
     const { nif, diags: synDiags } = window.NifiParser.parseFull(source, "in.nim");
     if(synDiags && synDiags.length)
       return { stdout:"", stderr:"syntax error: "+synDiags[0].message+" (line "+synDiags[0].line+")", exitCode:1 };
-    // 2+3. semcheck (worker, cached) + run (worker)
-    const m = await window.NifiPipe.run(nif, stdin);
+    // 2+3. semcheck (worker, cached) + run (worker). Fast mode routes through
+    // nifjs (native-JS transpile) with an automatic fall back to nifi.
+    const m = await (fast ? window.NifiPipe.fastrun(nif, stdin) : window.NifiPipe.run(nif, stdin));
     if(!m.snif && m.ranSem){
       const msg = (m.diags && m.diags.length)
         ? m.diags.map(d=>"  "+d.line+":"+d.col+"  "+d.message).join("\n")
         : "the program did not type-check.";
       return { stdout:"", stderr:"semantic error:\n"+msg, exitCode:1, diags:m.diags||[] };
     }
-    return { stdout:m.stdout||"", stderr:m.stderr||"", exitCode:m.exitCode|0, diags:m.diags||[], engine:m.engine, oom:!!m.oom };
+    return { stdout:m.stdout||"", stderr:m.stderr||"", exitCode:m.exitCode|0, diags:m.diags||[], engine:m.engine, oom:!!m.oom, fellBack:!!m.fellBack };
   }
 
   window.NifiCore = { compileAndRun, checkImports };
 
   // req: { source, stdin }. Returns Promise<{stdout,stderr,exitCode}>.
-  engine.run = (req) => compileAndRun(req.source, req.stdin);
+  engine.run = (req) => compileAndRun(req.source, req.stdin, req && req.fast);
   Object.defineProperty(engine, "ready", { get: () => !!(window.NifiPipe && window.NifiPipe.ready) });
   window.NifiEngine = engine;
 })();
