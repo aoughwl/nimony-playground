@@ -59,12 +59,18 @@
 
     // 2. Images -> data URIs. The logo is a CSS mask (../assets/...png); the
     //    favicon is an absolute /favicon.ico. Both break on file://.
-    if(assets.logoB64)
-      html = html.replace(/\.\.\/assets\/aoughwl-logo-white\.png/g,
-        "data:image/png;base64," + assets.logoB64);
-    if(assets.faviconB64)
-      html = html.replace(/(?:\.\.)?\/favicon\.ico/g,
-        "data:image/x-icon;base64," + assets.faviconB64);
+    //    NB: all replacements here use FUNCTION replacers, never string ones —
+    //    the bundles/base64 contain "$&", "$'", "$`" sequences that
+    //    String.replace would otherwise interpret (that "$'" = rest-of-string
+    //    splice is what scrambled the block order and double-loaded Monaco).
+    if(assets.logoB64){
+      var logoURI = "data:image/png;base64," + assets.logoB64;
+      html = html.replace(/\.\.\/assets\/aoughwl-logo-white\.png/g, function(){ return logoURI; });
+    }
+    if(assets.faviconB64){
+      var favURI = "data:image/x-icon;base64," + assets.faviconB64;
+      html = html.replace(/(?:\.\.)?\/favicon\.ico/g, function(){ return favURI; });
+    }
 
     // 3. Embed the bundles + stdlib and expose them on window.__NIFI_INLINE,
     //    injected right after <head> so it runs before the inlined app scripts.
@@ -82,7 +88,8 @@
         '"nifi_run.js":t("nifi-b-nifi_run")},' +
       'stdlibB64:t("nifi-b-stdlib")};})();</scr' + 'ipt>\n';
 
-    if(/<head>/i.test(html)) html = html.replace(/<head>/i, "<head>" + blocks + boot);
+    var inject = "<head>" + blocks + boot;   // built once; function replacer avoids $-interpretation
+    if(/<head>/i.test(html)) html = html.replace(/<head>/i, function(){ return inject; });
     else html = blocks + boot + html;
     return html;
   }
