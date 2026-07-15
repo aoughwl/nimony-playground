@@ -101,6 +101,12 @@ function opName(sym){
 }
 function isIntLit(a){ return /^-?\d+$/.test(a); }
 function isFloatLit(a){ return /^-?\d+\.\d+([eE][-+]?\d+)?$/.test(a); }
+// address-of / deref wrappers carry no meaning once values are native JS.
+function unwrapAddr(n){
+  while(isList(n) && (n.tag==="haddr"||n.tag==="addr"||n.tag==="hderef"||n.tag==="deref"))
+    n = n.kids[n.kids.length-1];
+  return n;
+}
 
 // ---------------------------------------------------------------------------
 // 3. emitter: node -> JS source string
@@ -238,7 +244,11 @@ function emitCallLike(s){
     return "__w(" + emitExpr(val) + ")";
   }
   if(name === "&") return "(" + rawArgs.map(emitExpr).join(" + ") + ")";     // string concat
-  if(name === "inc" || name === "dec") throw Unsupported("inplace " + name);
+  if(name === "inc" || name === "dec"){          // (cmd inc (haddr x) [k]) -> x += k
+    const lval = emitExpr(unwrapAddr(rawArgs[0]));
+    const by = rawArgs.length >= 2 ? emitExpr(rawArgs[1]) : "1";
+    return "(" + lval + (name === "inc" ? " += " : " -= ") + by + ")";
+  }
   if(!isAtom(callee)) throw Unsupported("indirect call");
   return mangle(callee.atom) + "(" + rawArgs.map(emitExpr).join(", ") + ")";
 }
@@ -279,6 +289,7 @@ function emitExpr(e){
     }
     case "paren": case "expr": return "(" + emitExpr(e.kids[e.kids.length-1]) + ")";
     case "conv": case "hconv": case "cast": return emitExpr(e.kids[e.kids.length-1]);  // numeric conv: identity in JS
+    case "haddr": case "addr": case "hderef": case "deref": return emitExpr(e.kids[e.kids.length-1]);  // no pointers in JS
     case "true": return "true";
     case "false": return "false";
     default: throw Unsupported("expr '" + t + "'");

@@ -115,8 +115,13 @@ function loadStdlibBytes(){
 }
 
 async function boot(){
-  const [semJs, nifiJs, nifiVmJs, asset] = await Promise.all([
-    loadText("nimsem.js"), loadText("nifi.js"), loadText("nifi_vm.js"), loadStdlibBytes()
+  // Fetch everything in PARALLEL, including the tiny nifjs source, so nothing is
+  // serialized behind the ~1 s warm-sem step below (that step, not the fetches,
+  // is what makes "engine ready" take a moment — it type-checks the whole stdlib
+  // closure once so every later compile is ~15 ms).
+  const [semJs, nifiJs, nifiVmJs, asset, njsText] = await Promise.all([
+    loadText("nimsem.js"), loadText("nifi.js"), loadText("nifi_vm.js"), loadStdlibBytes(),
+    loadText("nifjs.js").catch(()=>null)         // best-effort; fast path falls back if absent
   ]);
   stdlibBlob = bytesToLatin1(asset);
   semJsText = semJs;
@@ -124,16 +129,16 @@ async function boot(){
   // (~5 ms of init), and a clean interpreter state per run is what we want.
   nifiMain   = new Function(nifiJs   + "\nmain(0, []);");
   nifiVmMain = new Function(nifiVmJs + "\nmain(0, []);");
-  buildWarmSem();
-  // nifjs — the .s.nif -> native-JS transpiler ("Fast run"). Small hand-written
-  // JS (not a compiled bundle); load it into this worker scope so the fast path
-  // runs here (terminable via Stop). Best-effort: if it's missing, fast run just
-  // falls back to nifi.
+  // nifjs — the .s.nif -> native-JS transpiler (the ⚡ Native JS engine). Small
+  // hand-written JS; load it into this worker scope so it runs here (terminable
+  // via Stop). Cheap to compile, so do it before the heavy warm-sem step.
   try{
-    const njsText = await loadText("nifjs.js");
-    (new Function(njsText + "\n; globalThis.__NifiJs = (typeof NifiJs!=='undefined'?NifiJs:null);"))();
-    nifjsApi = globalThis.__NifiJs || null;
+    if(njsText){
+      (new Function(njsText + "\n; globalThis.__NifiJs = (typeof NifiJs!=='undefined'?NifiJs:null);"))();
+      nifjsApi = globalThis.__NifiJs || null;
+    }
   }catch(_){ nifjsApi = null; }
+  buildWarmSem();
 }
 let nifjsApi = null;
 
@@ -230,26 +235,67 @@ function isMemoryError(e){
   return !!e && (e.name === "RangeError" ||
     /bounds of the DataView|out of bounds|Array buffer allocation/i.test(String(e.message || e)));
 }
-function runSnif(snif, stdin){
-  // FAST PATH: the bytecode VM. If it can't run this program in the browser host
-  // (on-demand symbol load -> vfs open throws, or a quit surfaces via the exit
-  // shim), we catch it and re-run on the always-correct tree-walker. Where the VM
-  // succeeds its output is identical to the tree-walker's (verified on the demos).
+function runSnif(snif, stdin, forceTree){
+  // Engine selection: "tree" runs ONLY the tree-walker (the reference engine);
+  // otherwise run the bytecode VM and, if it can't run this program in the
+  // browser host (on-demand symbol load -> vfs open throws, or a quit surfaces
+  // via the exit shim), fall back to the always-correct tree-walker. Where the
+  // VM succeeds its output is identical to the tree-walker's.
   resetNifiGlobals(snif, stdin);
+  if(forceTree){ nifiMain(); return collectNifi("tree"); }
   try{
     nifiVmMain();
     return collectNifi("vm");
   }catch(e){
     // Out of memory is a genuine runtime limit, not a "the VM can't compile this"
-    // signal — the tree-walker shares the same fixed heap and would just OOM too
-    // (and double the wait). Surface it directly instead of falling back.
+    // signal — the tree-walker shares the same fixed heap and would just OOM too.
     if(isMemoryError(e)){ e.__oom = true; throw e; }
-    // otherwise the VM couldn't run it — reset (it may have written partial
-    // output before throwing) and re-run on the tree-walker.
     resetNifiGlobals(snif, stdin);
     nifiMain();
     return collectNifi("tree");
   }
+}
+
+const OOM_TEXT = "out of memory: this program allocated more than the in-browser "
+  + "interpreter's fixed heap. It runs with a bump allocator and no garbage collector, "
+  + "so large loops that build strings or collections (or that print a lot) exhaust it "
+  + "even if little is live at once. Try the ⚡ Native-JS engine (no fixed heap), fewer "
+  + "iterations, or less output.";
+
+// Run a semchecked program on a nifi engine (tree or vm) and return a result
+// object, translating an exit()/OOM/crash into stdout+stderr+exitCode.
+function runNifiResult(snif, stdin, forceTree){
+  try{
+    return runSnif(snif, stdin, forceTree);
+  }catch(e){
+    const base = globalThis.__nifi_err || "";
+    const eng = forceTree ? "tree" : "vm";
+    if(e && e.__isExit)
+      return { stdout: globalThis.__nifi_out||"", stderr: base, exitCode: parseInt(String(e.message).replace(/\D/g,""),10)||0, engine: eng };
+    if(e && (e.__oom || isMemoryError(e)))
+      return { stdout: globalThis.__nifi_out||"", oom:true, exitCode:137, stderr: base + OOM_TEXT, engine: eng };
+    return { stdout: globalThis.__nifi_out||"", exitCode:1, stderr: base + "runtime error: " + (e && e.message||e), engine: eng };
+  }
+}
+
+// A short human reason for why a nifjs Fast run fell back to nifi.
+function nifjsFallbackReason(e){
+  const m = String(e && e.message || e);
+  return /nifjs: unsupported/.test(m) ? m.replace(/^nifjs:\s*/, "").trim() : "fast-path error";
+}
+
+// Dispatch a run to the requested engine: "tree" | "vm" | "nifjs". nifjs
+// transpiles to native JS; on any unsupported node it falls back to the VM (then
+// tree), annotating the result with why.
+function runByEngine(snif, stdin, engine){
+  if(engine === "nifjs"){
+    if(nifjsApi){
+      try{ return { stdout: nifjsApi.run(snif), stderr:"", exitCode:0, engine:"nifjs" }; }
+      catch(e){ const r = runNifiResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = nifjsFallbackReason(e); return r; }
+    }
+    const r = runNifiResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = "nifjs unavailable"; return r;
+  }
+  return runNifiResult(snif, stdin, engine === "tree");
 }
 
 // --- run rung: semcheck (cached) + run the TREE-WALKER with the emitter on, and
@@ -274,41 +320,6 @@ async function handleRunRung(msg, id){
   }
 }
 
-// --- fast run: nifjs transpiles the typed .s.nif to native JS and runs it here
-//     (~native-JS speed, and no bump-allocator OOM). On ANY node nifjs doesn't
-//     support — or if nifjs failed to load — it falls back to the faithful nifi
-//     engines (runSnif), so correctness is never worse than a normal Run. ------
-function handleFastRun(msg, id){
-  try{
-    const { snif, diags } = semCompile(msg.pnif);
-    if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
-    if(nifjsApi){
-      try{
-        const out = nifjsApi.run(snif);
-        self.postMessage({ id, ok:true, stdout: out, stderr:"", exitCode:0, engine:"nifjs", diags });
-        return;
-      }catch(e){ /* unsupported node or a fast-path error -> fall back to nifi */ }
-    }
-    let res;
-    try{ res = runSnif(snif, msg.stdin); }
-    catch(e){
-      const base = globalThis.__nifi_err || "";
-      if(e && e.__isExit)
-        res = { stdout: globalThis.__nifi_out||"", stderr: base, exitCode: parseInt(String(e.message).replace(/\D/g,""),10)||0 };
-      else if(e && (e.__oom || isMemoryError(e)))
-        res = { stdout: globalThis.__nifi_out||"", oom:true, exitCode:137, stderr: base +
-          "out of memory: this program allocated more than the in-browser interpreter's fixed heap. "+
-          "The ⚡ Fast run path avoids this for supported programs; this one fell back to the interpreter." };
-      else
-        res = { stdout: globalThis.__nifi_out||"", exitCode:1, stderr: base + "runtime error: " + (e && e.message||e) };
-    }
-    res.diags = diags; res.fellBack = true;
-    self.postMessage(Object.assign({ id, ok:true }, res));
-  }catch(e){
-    self.postMessage({ id, ok:false, message: String(e && e.message || e) });
-  }
-}
-
 // --- message loop ------------------------------------------------------------
 self.onmessage = (ev) => {
   const msg = ev.data || {};
@@ -325,38 +336,17 @@ self.onmessage = (ev) => {
   }
   try{
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
-    if(msg.type === "fastrun"){ handleFastRun(msg, id); return; }
     if(msg.type === "sem"){
       const { snif, diags, cached } = semCompile(msg.pnif);
       self.postMessage({ id, ok:true, snif, diags, cached });
       return;
     }
-    if(msg.type === "run"){
+    if(msg.type === "run" || msg.type === "fastrun"){
+      // engine: "tree" | "vm" | "nifjs". ("fastrun" is a legacy alias for nifjs.)
+      const engine = msg.engine || (msg.type === "fastrun" ? "nifjs" : "vm");
       const { snif, diags } = semCompile(msg.pnif);
       if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
-      let res;
-      try{
-        res = runSnif(snif, msg.stdin);
-      }catch(e){
-        // an exit() thrown mid-run, an out-of-memory, or a bundle-level crash
-        // (e.g. a missing FFI shim). Surface it as stderr with whatever was
-        // printed so far, rather than letting the worker die.
-        const base = globalThis.__nifi_err || "";
-        if(e && e.__isExit){
-          res = { stdout: globalThis.__nifi_out || "", stderr: base,
-                  exitCode: parseInt(String(e.message).replace(/\D/g,""),10) || 0 };
-        }else if(e && (e.__oom || isMemoryError(e))){
-          res = { stdout: globalThis.__nifi_out || "", oom: true, exitCode: 137,
-                  stderr: base + "out of memory: this program allocated more than the "
-                    + "in-browser interpreter's fixed heap. It runs with a bump allocator "
-                    + "and no garbage collector, so large loops that build strings or "
-                    + "collections (or that print a lot) exhaust it even if little is live "
-                    + "at once. Try fewer iterations or less output." };
-        }else{
-          res = { stdout: globalThis.__nifi_out || "", exitCode: 1,
-                  stderr: base + "runtime error: " + (e && e.message || e) };
-        }
-      }
+      const res = runByEngine(snif, msg.stdin, engine);
       res.diags = diags;
       self.postMessage(Object.assign({ id, ok:true }, res));
       return;

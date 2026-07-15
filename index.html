@@ -92,7 +92,14 @@
   .actions button:hover{background:var(--panel2)}
   .actions button:disabled{opacity:.5;cursor:progress}
   .actions button.curly.on{color:var(--brace);background:var(--brace-bg)}
-  .actions button#fastBtn.on{color:var(--accent2);background:color-mix(in srgb,var(--accent2) 16%,transparent)}
+  /* engine picker: sits in the segmented action bar, matching its buttons */
+  #engineSel{appearance:none;-webkit-appearance:none;border:0;border-left:1px solid var(--border);
+    background:var(--panel);color:var(--fg);font:inherit;font-size:12.5px;cursor:pointer;
+    padding:0 26px 0 12px;height:100%;outline:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3l4 4 4-4' fill='none' stroke='%239aa3b2' stroke-width='1.4'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 9px center}
+  #engineSel:hover{background-color:var(--panel2)}
+  #engineSel.nifjs{color:var(--accent2)}
   .actions button.copied{color:var(--accent2)}
   .actions button.run{background:var(--accent);color:#fff;font-weight:650;border-left-color:transparent;padding:0 17px}
   .actions button.run:hover{filter:brightness(1.08);background:var(--accent)}
@@ -398,9 +405,11 @@
     <button id="themeBtn" data-tip="Toggle light / dark theme">
       <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 000 10.8z" fill="currentColor"/></svg>
     </button>
-    <button id="fastBtn" data-tip="⚡ Fast run: transpile to native JS (nifjs) — ~1000× faster, falls back to the interpreter for unsupported programs" aria-pressed="false">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M8.5 1.5L3 9h4l-.5 5.5L13 7H9z"/></svg>
-    </button>
+    <select id="engineSel" aria-label="Execution engine" data-tip="How your program runs. Bytecode VM & Tree-walk are the faithful nimony interpreter; Native JS transpiles to JavaScript for near-native speed (unsupported programs fall back automatically).">
+      <option value="vm">⚙ Bytecode VM</option>
+      <option value="tree">🌲 Tree-walk</option>
+      <option value="nifjs">⚡ Native JS</option>
+    </select>
     <button class="run" id="runBtn" disabled data-tip="Compile & run — Ctrl/Cmd + Enter">
       <svg viewBox="0 0 16 16"><path d="M4.5 3.2l8 4.8-8 4.8z" fill="currentColor"/></svg> Run <kbd>⌃⏎</kbd>
     </button>
@@ -497,8 +506,8 @@ window.NifiOpts = window.NifiOpts || { curly:false };
 <!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
      refresh (the big bundles are fetched separately and change rarely). -->
 <script src="examples.js?v=6"></script>
-<script src="pipeline.js?v=12"></script>
-<script src="engine.js?v=9"></script>
+<script src="pipeline.js?v=13"></script>
+<script src="engine.js?v=10"></script>
 <script src="parser.js?v=9"></script>
 <script src="sem.js?v=8"></script>
 <script src="editor.js?v=8"></script>
@@ -824,16 +833,18 @@ window.NifiOpts = window.NifiOpts || { curly:false };
     setRunning(true);
     const t0=performance.now();
     try{
-      const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), stdin: currentStdin(), fast: fastMode });
+      const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), stdin: currentStdin(), engine: engineMode });
       const ms=(performance.now()-t0).toFixed(1);
       const parts=[];
       if(res.stdout) parts.push(esc(res.stdout));
       if(res.stderr) parts.push('<span class="err">'+esc(res.stderr)+'</span>');
-      // which engine ran: nifjs (native-JS Fast run), the bytecode VM, or the
-      // tree-walker. In Fast mode a fall back to nifi is annotated.
-      const eng = res.engine==="nifjs" ? ' · <span class="sys">⚡ nifjs</span>'
-                : res.engine==="vm" ? ' · <span class="sys">VM'+(res.fellBack?' (nifjs fallback)':'')+'</span>'
-                : res.engine==="tree" ? ' · <span class="sys">tree-walker'+(res.fellBack?' (nifjs fallback)':'')+'</span>' : '';
+      // which engine actually ran. If Native JS was picked but the program used
+      // something nifjs doesn't support, it fell back — say so, and why.
+      const label = res.engine==="nifjs" ? '⚡ Native JS'
+                  : res.engine==="vm" ? '⚙ Bytecode VM'
+                  : res.engine==="tree" ? '🌲 tree-walk' : '';
+      const fb = res.fellBack ? ' — nifjs fell back'+(res.fallbackReason?' ('+esc(res.fallbackReason)+')':'') : '';
+      const eng = label ? ' · <span class="sys">'+label+fb+'</span>' : '';
       parts.push('<span class="'+(res.oom?'err':'ok')+'">— exit '+(res.exitCode|0)+' · '+ms+' ms'+eng+'</span>');
       print(parts.join('\n')); perf.textContent=ms+" ms"; scrollOutToBottom(true);
       // keep the Run rung in sync with what just executed, if it's on screen
@@ -846,18 +857,23 @@ window.NifiOpts = window.NifiOpts || { curly:false };
   }
   runBtn.addEventListener("click",run);
 
-  // ---- ⚡ Fast run toggle: route Run through nifjs (native-JS transpile) with an
-  //      automatic fall back to the faithful nifi engines. Persisted. ----
-  let fastMode = false;
-  const fastBtn = $("#fastBtn");
-  try{ fastMode = localStorage.getItem("np-fast")==="1"; }catch(_){}
-  function paintFast(){ fastBtn.classList.toggle("on", fastMode); fastBtn.setAttribute("aria-pressed", fastMode?"true":"false"); }
-  fastBtn.addEventListener("click",()=>{
-    fastMode = !fastMode; paintFast();
-    try{ localStorage.setItem("np-fast", fastMode?"1":"0"); }catch(_){}
-    print('<span class="sys">⚡ Fast run '+(fastMode?'ON — programs run via nifjs (native-JS speed), falling back to the interpreter when needed.':'off — using the faithful nifi interpreter.')+'</span>');
+  // ---- execution-engine picker: "vm" | "tree" | "nifjs" (persisted) ----
+  let engineMode = "vm";
+  const engineSel = $("#engineSel");
+  try{ const e = localStorage.getItem("np-engine"); if(e==="vm"||e==="tree"||e==="nifjs") engineMode = e; }catch(_){}
+  engineSel.value = engineMode;
+  const ENGINE_DESC = {
+    vm:   "⚙ Bytecode VM — the faithful nimony interpreter, compiled to a tight bytecode dispatch loop. The default.",
+    tree: "🌲 Tree-walk — the reference interpreter; it walks the typed program node by node. Slowest, most faithful.",
+    nifjs:"⚡ Native JS — transpiles your program to JavaScript (nifjs) so the browser JIT-compiles it: near-native speed, no fixed heap. A program using something nifjs doesn't support yet falls back to the interpreter automatically."
+  };
+  function paintEngine(){ engineSel.classList.toggle("nifjs", engineMode==="nifjs"); }
+  engineSel.addEventListener("change",()=>{
+    engineMode = engineSel.value; paintEngine();
+    try{ localStorage.setItem("np-engine", engineMode); }catch(_){}
+    print('<span class="sys">'+ENGINE_DESC[engineMode]+'</span>');
   });
-  paintFast();
+  paintEngine();
 
   // ---- Run rung: the program's execution serialized as NIF (nifi_run.js — the
   //      tree-walker with the run emitter on). Computed ON DEMAND (opening the Run
