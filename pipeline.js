@@ -27,7 +27,7 @@
       const blob = new Blob([INLINE.workerText], { type:"text/javascript" });
       worker = new Worker(URL.createObjectURL(blob));
     }else{
-      worker = new Worker("worker.js?v=17");
+      worker = new Worker("worker.js?v=18");
     }
     worker.onmessage = (ev) => {
       const m = ev.data || {};

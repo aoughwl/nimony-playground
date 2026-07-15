@@ -1,4 +1,4 @@
-// offline.js — wires the header "⤓ Offline copy" button. On click it fetches
+// offline.js — wires the header "Offline copy" button. On click it fetches
 // every asset the playground needs, hands them to NifiAssemble.assembleStandalone
 // (shared with build-standalone.sh), and downloads ONE self-contained .html that
 // runs from a file:// URL with no server. Uses only assets already served from

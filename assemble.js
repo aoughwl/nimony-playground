@@ -1,6 +1,6 @@
 // assemble.js — the single source of truth for building the self-contained,
 // offline single-file playground. Pure string transforms, so it runs unchanged
-// in the browser (the "⤓ Offline copy" button, via window.NifiAssemble) AND in
+// in the browser (the "Offline copy" button, via window.NifiAssemble) AND in
 // Node (build-standalone.sh, via module.exports).
 //
 // It takes the live index.html plus every asset and returns ONE HTML document

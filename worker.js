@@ -129,7 +129,7 @@ async function boot(){
   // (~5 ms of init), and a clean interpreter state per run is what we want.
   nifiMain   = new Function(nifiJs   + "\nmain(0, []);");
   nifiVmMain = new Function(nifiVmJs + "\nmain(0, []);");
-  // nifjs — the .s.nif -> native-JS transpiler (the ⚡ Native JS engine). Small
+  // nifjs — the .s.nif -> native-JS transpiler (the Native JS engine). Small
   // hand-written JS; load it into this worker scope so it runs here (terminable
   // via Stop). Cheap to compile, so do it before the heavy warm-sem step.
   try{
@@ -259,7 +259,7 @@ function runSnif(snif, stdin, forceTree){
 const OOM_TEXT = "out of memory: this program allocated more than the in-browser "
   + "interpreter's fixed heap. It runs with a bump allocator and no garbage collector, "
   + "so large loops that build strings or collections (or that print a lot) exhaust it "
-  + "even if little is live at once. Try the ⚡ Native-JS engine (no fixed heap), fewer "
+  + "even if little is live at once. Try the Native-JS engine (no fixed heap), fewer "
   + "iterations, or less output.";
 
 // Run a semchecked program on a nifi engine (tree or vm) and return a result

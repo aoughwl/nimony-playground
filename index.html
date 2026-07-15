@@ -406,9 +406,9 @@
       <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 000 10.8z" fill="currentColor"/></svg>
     </button>
     <select id="engineSel" aria-label="Execution engine" data-tip="How your program runs. Bytecode VM & Tree-walk are the faithful nimony interpreter; Native JS transpiles to JavaScript for near-native speed (unsupported programs fall back automatically).">
-      <option value="vm">⚙ Bytecode VM</option>
-      <option value="tree">🌲 Tree-walk</option>
-      <option value="nifjs">⚡ Native JS</option>
+      <option value="vm">Bytecode VM</option>
+      <option value="tree">Tree-walk</option>
+      <option value="nifjs">Native JS</option>
     </select>
     <button class="run" id="runBtn" disabled data-tip="Compile & run — Ctrl/Cmd + Enter">
       <svg viewBox="0 0 16 16"><path d="M4.5 3.2l8 4.8-8 4.8z" fill="currentColor"/></svg> Run <kbd>⌃⏎</kbd>
@@ -506,7 +506,7 @@ window.NifiOpts = window.NifiOpts || { curly:false };
 <!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
      refresh (the big bundles are fetched separately and change rarely). -->
 <script src="examples.js?v=6"></script>
-<script src="pipeline.js?v=13"></script>
+<script src="pipeline.js?v=14"></script>
 <script src="engine.js?v=10"></script>
 <script src="parser.js?v=9"></script>
 <script src="sem.js?v=8"></script>
@@ -840,9 +840,9 @@ window.NifiOpts = window.NifiOpts || { curly:false };
       if(res.stderr) parts.push('<span class="err">'+esc(res.stderr)+'</span>');
       // which engine actually ran. If Native JS was picked but the program used
       // something nifjs doesn't support, it fell back — say so, and why.
-      const label = res.engine==="nifjs" ? '⚡ Native JS'
-                  : res.engine==="vm" ? '⚙ Bytecode VM'
-                  : res.engine==="tree" ? '🌲 tree-walk' : '';
+      const label = res.engine==="nifjs" ? 'Native JS'
+                  : res.engine==="vm" ? 'Bytecode VM'
+                  : res.engine==="tree" ? 'tree-walk' : '';
       const fb = res.fellBack ? ' — nifjs fell back'+(res.fallbackReason?' ('+esc(res.fallbackReason)+')':'') : '';
       const eng = label ? ' · <span class="sys">'+label+fb+'</span>' : '';
       parts.push('<span class="'+(res.oom?'err':'ok')+'">— exit '+(res.exitCode|0)+' · '+ms+' ms'+eng+'</span>');
@@ -863,9 +863,9 @@ window.NifiOpts = window.NifiOpts || { curly:false };
   try{ const e = localStorage.getItem("np-engine"); if(e==="vm"||e==="tree"||e==="nifjs") engineMode = e; }catch(_){}
   engineSel.value = engineMode;
   const ENGINE_DESC = {
-    vm:   "⚙ Bytecode VM — the faithful nimony interpreter, compiled to a tight bytecode dispatch loop. The default.",
-    tree: "🌲 Tree-walk — the reference interpreter; it walks the typed program node by node. Slowest, most faithful.",
-    nifjs:"⚡ Native JS — transpiles your program to JavaScript (nifjs) so the browser JIT-compiles it: near-native speed, no fixed heap. A program using something nifjs doesn't support yet falls back to the interpreter automatically."
+    vm:   "Bytecode VM — the faithful nimony interpreter, compiled to a tight bytecode dispatch loop. The default.",
+    tree: "Tree-walk — the reference interpreter; it walks the typed program node by node. Slowest, most faithful.",
+    nifjs:"Native JS — transpiles your program to JavaScript (nifjs) so the browser JIT-compiles it: near-native speed, no fixed heap. A program using something nifjs doesn't support yet falls back to the interpreter automatically."
   };
   function paintEngine(){ engineSel.classList.toggle("nifjs", engineMode==="nifjs"); }
   engineSel.addEventListener("change",()=>{

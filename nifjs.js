@@ -1,5 +1,5 @@
 // nifjs — a typed-NIF (.s.nif) -> native JavaScript transpiler: the playground's
-// "⚡ Fast run" backend. Unlike nifi (which interprets the .s.nif on a simulated
+// "Fast run" backend. Unlike nifi (which interprets the .s.nif on a simulated
 // linear memory), nifjs EMITS JavaScript that maps nimony values onto native JS
 // values (int/float -> number, bool -> boolean, string -> string) and runs it
 // via new Function, so the browser's JIT compiles the hot loops. That trades
