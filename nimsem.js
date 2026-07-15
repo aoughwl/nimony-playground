@@ -4,10 +4,12 @@
 // compiled to JS through lengjs like any other module; the runtime provides only
 // `mmap`/`munmap` as the page primitives it sits on (Araq's boundary), so `alloc`/
 // `dealloc`/`realloc` and their free-list reuse all run as real Nim code.
-// Grow-on-demand linear memory: start at 256 MiB, grow (in `mmap`) up to a 1 GiB
-// ceiling via a *resizable* ArrayBuffer. `_dv`/`_u8` are length-tracking views,
-// so they follow the buffer across `.resize()`. (Raised from a fixed 1<<26.)
-const _HEAP0 = 1 << 28, _HEAPMAX = 1 << 30;
+// Grow-on-demand linear memory: start at 64 MiB (fast boot — matches the old
+// fixed size, so "engine ready" isn't slowed by a big up-front allocation) and
+// grow (in `mmap`) up to a 1 GiB ceiling via a *resizable* ArrayBuffer.
+// `_dv`/`_u8` are length-tracking views, so they follow the buffer across
+// `.resize()`.
+const _HEAP0 = 1 << 26, _HEAPMAX = 1 << 30;
 function _mkHeap(){
   try { const b = new ArrayBuffer(_HEAP0, {maxByteLength: _HEAPMAX}); if (b.resizable) return b; }
   catch (e) { /* option bag unsupported */ }
