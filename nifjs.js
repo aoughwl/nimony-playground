@@ -6,9 +6,12 @@
 // exact linear-memory fidelity (int64 wraparound, ptr/ARC semantics) for ~1000x
 // speed — so it's the FAST path, with nifi as the faithful fallback.
 //
-// Coverage is a deliberate subset (procs, int/float arithmetic, comparisons,
-// if/while/for-range, calls, echo, string concat). Anything outside it makes
-// emit() throw `Unsupported(...)`, and the caller falls back to nifi.
+// Coverage is a deliberate (growing) subset: procs + recursion, int/float
+// arithmetic & comparisons, if/elif/else, case (stmt & expr, incl. ranges),
+// while, for over integer ranges AND over collections, inc/dec, seq/array
+// literals (@[…]), len, indexing, add/push, string concat & $, echo, bool.
+// Anything outside it makes emit() throw `Unsupported(...)`, and the caller
+// falls back to the faithful nifi engines — so it's never less correct.
 (function(global){
 "use strict";
 
@@ -123,7 +126,8 @@ function emitModule(nodes){
     switch(s.tag){
       case "proc": procs.push(emitProc(s)); break;
       case "import": case "comment": case "iterator": case "func":
-      case "type": case "typevars": case "include":
+      case "type": case "typevars": case "include": case "converter":
+      case "template": case "macro": case "pragmas": case "emit": case "using":
         break;                               // system helpers / metadata: skip
       default: top.push(emitStmt(s));
     }
@@ -178,9 +182,10 @@ function emitStmt(s){
       return v ? "return " + emitExpr(v) + ";" : "return;";
     }
     case "if":    return emitIf(s);
+    case "case":  return emitCase(s, false);
     case "while": return "while(" + emitExpr(s.kids[0]) + "){\n" + emitStmts(s.kids[1]) + "\n}";
     case "for":   return emitFor(s);
-    case "cmd": case "call": {
+    case "cmd": case "call": case "hcall": {
       const c = emitCallLike(s);
       return c + ";";
     }
@@ -206,6 +211,53 @@ function emitIf(s){
   return parts.join(" else ");
 }
 
+// Dig a for-loop iterable down to the underlying collection: nimony lowers
+// `for x in xs` to `items(toOpenArray(xs))` etc., wrapped in hderef.
+function collOf(node){
+  while(isList(node)){
+    const t = node.tag;
+    if(t === "hderef" || t === "deref"){ node = node.kids[node.kids.length-1]; continue; }
+    if(t === "call" || t === "hcall"){
+      const nm = isAtom(node.kids[0]) ? opName(node.kids[0].atom) : "";
+      if(nm === "items" || nm === "mitems" || nm === "pairs" || nm === "toOpenArray"){
+        node = node.kids[1]; continue;         // first argument is the collection
+      }
+    }
+    break;
+  }
+  return node;
+}
+
+// case — both statement `(case SEL (of (ranges …) STMTS) … (else STMTS))` and
+// expression `(case SEL (of (ranges …) (expr E)) … (else (expr E)))`. Emitted as
+// an if-chain over the selector, bound once to a local.
+function emitRanges(sel, rangesNode){
+  return rangesNode.kids.map(k => {
+    if(isList(k) && k.tag === "range")
+      return "(" + sel + " >= " + emitExpr(k.kids[0]) + " && " + sel + " <= " + emitExpr(k.kids[1]) + ")";
+    return "(" + sel + " === " + emitExpr(k) + ")";
+  }).join(" || ");
+}
+function caseBody(b, asExpr){
+  if(asExpr) return "return " + emitExpr(b) + ";";
+  if(isList(b) && b.tag === "stmts") return emitStmts(b);
+  return emitExpr(b) + ";";
+}
+function emitCase(node, asExpr){
+  const sel = "_s", parts = []; let elsePart = "";
+  for(const br of node.kids.slice(1)){
+    if(!isList(br)) continue;
+    if(br.tag === "of") parts.push("if(" + emitRanges(sel, br.kids[0]) + "){ " + caseBody(br.kids[1], asExpr) + " }");
+    else if(br.tag === "else") elsePart = " else { " + caseBody(br.kids[0], asExpr) + " }";
+    else throw Unsupported("case branch '" + br.tag + "'");
+  }
+  const chain = parts.join(" else ") + elsePart;
+  const selExpr = emitExpr(node.kids[0]);
+  return asExpr
+    ? "(function(" + sel + "){ " + chain + " })(" + selExpr + ")"
+    : "{ const " + sel + " = " + selExpr + "; " + chain + " }";
+}
+
 function emitFor(s){
   // (for ITER (unpackflat (let :i . . TYPE .)) BODY)
   const iter = s.kids[0], varspec = s.kids[1], body = s.kids[2];
@@ -214,18 +266,19 @@ function emitFor(s){
   if(isList(varspec) && varspec.tag === "unpackflat") vnode = varspec.kids[0];
   if(!isList(vnode) || !(vnode.tag === "let" || vnode.tag === "var")) throw Unsupported("for-var shape");
   const v = mangle(vnode.kids[0].atom);
-  // iterable must be a range: (infix ..<|.. A B)  (nimony lowers a..b / a..<b)
-  if(!(isList(iter) && (iter.tag === "infix" || iter.tag === "range" || iter.tag === "..") ))
-    throw Unsupported("for over non-range iterator");
-  const op = isAtom(iter.kids[0]) ? opName(iter.kids[0].atom) : "";
-  let lo, hi, cmp;
-  if(iter.tag === "infix"){
-    if(op === "..<"){ lo = iter.kids[1]; hi = iter.kids[2]; cmp = "<"; }
-    else if(op === ".."){ lo = iter.kids[1]; hi = iter.kids[2]; cmp = "<="; }
+  // range loop: (infix ..<|.. A B) — nimony lowers a..b / a..<b
+  if(isList(iter) && iter.tag === "infix"){
+    const op = isAtom(iter.kids[0]) ? opName(iter.kids[0].atom) : "";
+    let cmp;
+    if(op === "..<") cmp = "<";
+    else if(op === "..") cmp = "<=";
     else throw Unsupported("for range op '" + op + "'");
-  } else { lo = iter.kids[0]; hi = iter.kids[1]; cmp = iter.tag === ".." ? "<=" : "<"; }
-  return "for(let " + v + " = " + emitExpr(lo) + "; " + v + " " + cmp + " " + emitExpr(hi) + "; " + v + "++){\n" +
-         emitStmts(body) + "\n}";
+    const lo = iter.kids[1], hi = iter.kids[2];
+    return "for(let " + v + " = " + emitExpr(lo) + "; " + v + " " + cmp + " " + emitExpr(hi) + "; " + v + "++){\n" +
+           emitStmts(body) + "\n}";
+  }
+  // collection loop: `for x in xs` over a seq/array/string -> for..of.
+  return "for(const " + v + " of " + emitExpr(collOf(iter)) + "){\n" + emitStmts(body) + "\n}";
 }
 
 // arithmetic/relational tags whose FIRST kid is the result-type node (skip it).
@@ -248,6 +301,22 @@ function emitCallLike(s){
     const lval = emitExpr(unwrapAddr(rawArgs[0]));
     const by = rawArgs.length >= 2 ? emitExpr(rawArgs[1]) : "1";
     return "(" + lval + (name === "inc" ? " += " : " -= ") + by + ")";
+  }
+  // seq / array / string builtins — nimony values map onto native JS ones, so
+  // these become the obvious JS. `[]` is the index operator, decoded from \5B\5D.
+  if(name === "len") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".length)";
+  if(name === "[]" || name === "[]=") {          // index get/set
+    const base = emitExpr(unwrapAddr(rawArgs[0])), idx = emitExpr(rawArgs[1]);
+    if(name === "[]=") return "(" + base + "[" + idx + "] = " + emitExpr(rawArgs[2]) + ")";
+    return "(" + base + "[" + idx + "])";
+  }
+  if(name === "add") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".push(" + emitExpr(rawArgs[1]) + "))";
+  if(name === "$") return "String(" + emitExpr(rawArgs[0]) + ")";
+  if(name === "high") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".length - 1)";
+  if(name === "low") return "0";
+  if(name === "newSeq" || name === "newSeqUninit" || name === "newSeqOfCap"){
+    if(name === "newSeqOfCap") return "[]";
+    return "new Array(" + emitExpr(rawArgs[rawArgs.length-1]) + ").fill(0)";
   }
   if(!isAtom(callee)) throw Unsupported("indirect call");
   return mangle(callee.atom) + "(" + rawArgs.map(emitExpr).join(", ") + ")";
@@ -281,7 +350,19 @@ function emitExpr(e){
       return "(" + emitExpr(a) + " % " + emitExpr(b) + ")"; }
     case "neg": return "(-" + emitExpr(e.kids[e.kids.length-1]) + ")";
     case "not": return "(!" + emitExpr(e.kids[0]) + ")";
-    case "call": case "cmd": return emitCallLike(e);
+    case "call": case "cmd": case "hcall": return emitCallLike(e);
+    case "case": return emitCase(e, true);     // case-expression
+    case "aconstr": {                          // array constructor: (aconstr TYPE e0 e1 …)
+      return "[" + e.kids.slice(1).map(emitExpr).join(", ") + "]";
+    }
+    case "bracket": return "[" + e.kids.map(emitExpr).join(", ") + "]";   // [a, b, c]
+    case "prefix": {                           // (prefix OP X) — @seq / $tostring
+      const op = isAtom(e.kids[0]) ? opName(e.kids[0].atom) : "";
+      const x = e.kids[e.kids.length-1];
+      if(op === "@") return emitExpr(x);       // @[…] : array literal -> JS array
+      if(op === "$") return "String(" + emitExpr(x) + ")";
+      throw Unsupported("prefix '" + op + "'");
+    }
     case "infix": {                           // generic infix as a call: (infix OP a b)
       const op = isAtom(e.kids[0]) ? opName(e.kids[0].atom) : "";
       if(op === "&") return "(" + emitExpr(e.kids[1]) + " + " + emitExpr(e.kids[2]) + ")";
