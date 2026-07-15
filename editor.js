@@ -8,6 +8,62 @@
   const fallbackEl = document.getElementById("fallback");
   const editorEl = document.getElementById("editor");
 
+  // ---- editor font-size zoom: Ctrl+Wheel / Ctrl+= / Ctrl+- / Ctrl+0, with a
+  // Chrome-style transient indicator. Size persists in localStorage and applies
+  // to both Monaco and the textarea fallback. ----------------------------------
+  const FONT_MIN = 8, FONT_MAX = 40, FONT_DEFAULT = 13;
+  let fontSize = FONT_DEFAULT;
+  try { const s = parseInt(localStorage.getItem("nifi.fontSize"), 10);
+        if (s >= FONT_MIN && s <= FONT_MAX) fontSize = s; } catch(_){}
+
+  let zoomEl = null, zoomTimer = null;
+  function showZoomPopup(){
+    if(!zoomEl){
+      const host = editorEl.parentElement || document.body;
+      if(getComputedStyle(host).position === "static") host.style.position = "relative";
+      zoomEl = document.createElement("div");
+      zoomEl.className = "nifi-zoom-indicator";
+      host.appendChild(zoomEl);
+    }
+    zoomEl.textContent = fontSize + " px · " + Math.round(fontSize / FONT_DEFAULT * 100) + "%";
+    zoomEl.classList.add("show");
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(()=>{ if(zoomEl) zoomEl.classList.remove("show"); }, 1300);
+  }
+  function applyFontSize(){
+    if(usingFallback){ if(fallbackEl) fallbackEl.style.fontSize = fontSize + "px"; }
+    else if(editor){ editor.updateOptions({ fontSize: fontSize }); }
+    try { localStorage.setItem("nifi.fontSize", String(fontSize)); } catch(_){}
+  }
+  function setFontSize(n, showUi){
+    const c = Math.max(FONT_MIN, Math.min(FONT_MAX, n|0));
+    if(c !== fontSize){ fontSize = c; applyFontSize(); }
+    if(showUi !== false) showZoomPopup();
+  }
+  function bumpFontSize(d){ setFontSize(fontSize + d, true); }
+
+  let zoomWired = false;
+  function wireZoom(){
+    if(zoomWired) return; zoomWired = true;
+    // Ctrl+Wheel over the editor/fallback → smooth resize (capture, non-passive
+    // so we win the event before Monaco scrolls the viewport).
+    const onWheel = (e)=>{ if(!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault(); bumpFontSize(e.deltaY < 0 ? +1 : -1); };
+    editorEl.addEventListener("wheel", onWheel, { passive:false, capture:true });
+    if(fallbackEl) fallbackEl.addEventListener("wheel", onWheel, { passive:false, capture:true });
+    // Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0, but only while the editor is focused, so
+    // we don't hijack the browser's page zoom elsewhere on the page.
+    document.addEventListener("keydown", (e)=>{
+      if(!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const a = document.activeElement;
+      const inEditor = (editorEl && editorEl.contains(a)) || (usingFallback && a === fallbackEl);
+      if(!inEditor) return;
+      if(e.key === "+" || e.key === "="){ e.preventDefault(); bumpFontSize(+1); }
+      else if(e.key === "-" || e.key === "_"){ e.preventDefault(); bumpFontSize(-1); }
+      else if(e.key === "0"){ e.preventDefault(); setFontSize(FONT_DEFAULT, true); }
+    }, true);
+  }
+
   const NIMONY_KEYWORDS = [
     "addr","and","as","asm","bind","block","break","case","cast","concept","const",
     "continue","converter","defer","discard","distinct","div","do","elif","else","end",
@@ -63,7 +119,17 @@
   (function injectCss(){
     const st = document.createElement("style");
     st.textContent = ".nifi-import-ref{ text-decoration: underline dotted;"
-      + " text-decoration-color: var(--muted,#9aa3b2); text-underline-offset:3px; cursor:help; }";
+      + " text-decoration-color: var(--muted,#9aa3b2); text-underline-offset:3px; cursor:help; }"
+      // Chrome-style zoom indicator: a small glass chip in the editor's top-right
+      // that fades in on a size change and auto-hides. Reads fine on light/dark.
+      + ".nifi-zoom-indicator{ position:absolute; top:10px; right:16px; z-index:50;"
+      + " font:600 12px/1 'SF Mono',ui-monospace,Menlo,Consolas,monospace;"
+      + " color:#e8eaed; background:rgba(20,22,28,0.92);"
+      + " border:1px solid rgba(255,255,255,0.14); border-radius:8px;"
+      + " padding:7px 11px; letter-spacing:.02em; white-space:nowrap;"
+      + " box-shadow:0 6px 20px rgba(0,0,0,0.35); pointer-events:none; user-select:none;"
+      + " opacity:0; transform:translateY(-5px); transition:opacity .14s ease, transform .14s ease; }"
+      + ".nifi-zoom-indicator.show{ opacity:1; transform:translateY(0); }";
     document.head.appendChild(st);
   })();
 
@@ -105,6 +171,8 @@
     usingFallback = true;
     editorEl.style.display = "none";
     fallbackEl.style.display = "block";
+    applyFontSize();   // honor a persisted zoom on the textarea too
+    wireZoom();
     fireReady();
   }
 
@@ -123,7 +191,7 @@
             value:"", language:"nimony",
             theme: initTheme,
             fontFamily:'"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace',
-            fontSize:13, minimap:{enabled:false}, automaticLayout:true,
+            fontSize: fontSize, minimap:{enabled:false}, automaticLayout:true,
             scrollBeyondLastLine:false, tabSize:2, insertSpaces:true, renderWhitespace:"none",
             // the playground supplies its OWN unified context menu (see index.html)
             // so the look matches the rest of the site — disable Monaco's built-in one.
@@ -131,6 +199,7 @@
           });
           editor.onDidChangeModelContent(scheduleImportDecos);   // keep import underlines fresh
           computeImportDecos();
+          wireZoom();
           fireReady();
         });
       }catch(_){ startFallback(); }
@@ -153,6 +222,12 @@
     getEditor(){ return editor; },
     getModel(){ return editor ? editor.getModel() : null; },
     languageId: "nimony",
+    // Editor font-size zoom (also driven by Ctrl+Wheel / Ctrl+± / Ctrl+0).
+    getFontSize(){ return fontSize; },
+    setFontSize(n){ setFontSize(n, true); },
+    zoomIn(){ bumpFontSize(+1); },
+    zoomOut(){ bumpFontSize(-1); },
+    resetFontSize(){ setFontSize(FONT_DEFAULT, true); },
     // Repaint the std-module import underlines (lsp.js calls this once its
     // STD_MODULES list is available). Safe no-op under the textarea fallback.
     refreshImportDecorations(){ computeImportDecos(); },

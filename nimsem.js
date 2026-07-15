@@ -4,7 +4,16 @@
 // compiled to JS through lengjs like any other module; the runtime provides only
 // `mmap`/`munmap` as the page primitives it sits on (Araq's boundary), so `alloc`/
 // `dealloc`/`realloc` and their free-list reuse all run as real Nim code.
-const _ab = new ArrayBuffer(1 << 26);           // 64 MiB linear memory
+// Grow-on-demand linear memory: start at 256 MiB, grow (in `mmap`) up to a 1 GiB
+// ceiling via a *resizable* ArrayBuffer. `_dv`/`_u8` are length-tracking views,
+// so they follow the buffer across `.resize()`. (Raised from a fixed 1<<26.)
+const _HEAP0 = 1 << 28, _HEAPMAX = 1 << 30;
+function _mkHeap(){
+  try { const b = new ArrayBuffer(_HEAP0, {maxByteLength: _HEAPMAX}); if (b.resizable) return b; }
+  catch (e) { /* option bag unsupported */ }
+  return new ArrayBuffer(_HEAPMAX);
+}
+const _ab = _mkHeap();
 const _dv = new DataView(_ab);
 const _u8 = new Uint8Array(_ab);
 let _brk = 8;                                   // offset 0 reserved as nil
@@ -22,8 +31,15 @@ const _PAGE = 4096;
 function mmap(adr, len, prot, flags, fildes, off){
   len = Number(len);
   const p = (_brk + _PAGE - 1) & ~(_PAGE - 1);  // page-align
-  if (p + len > _u8.length) return -1;          // MAP_FAILED
-  _brk = p + len;
+  const need = p + len;
+  if (need > _ab.byteLength) {                   // grow the resizable heap on demand
+    if (!_ab.resizable || need > _HEAPMAX) return -1;   // MAP_FAILED at the ceiling
+    let want = _ab.byteLength;
+    while (want < need) want *= 2;
+    if (want > _HEAPMAX) want = _HEAPMAX;
+    _ab.resize(want);
+  }
+  _brk = need;
   _u8.fill(0, p, p + len);                      // MAP_ANONYMOUS: zero-filled
   return p;
 }
