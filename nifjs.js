@@ -477,6 +477,10 @@ const SHIMS = {
   split:a=>`(${a[0]}).split(${a[1]})`,
   parseInt:a=>`parseInt(${a[0]}, 10)`, parseFloat:a=>`parseFloat(${a[0]})`,
   intToStr:a=>`String(${a[0]})`,
+  // memory / lifetime ops — no-ops under a GC (V8 reclaims native values). Safe
+  // because nifjs uses native JS values, so there's nothing to free/move.
+  dealloc:()=>`(void 0)`, "=destroy":()=>`(void 0)`, "=wasMoved":()=>`(void 0)`,
+  wasMoved:()=>`(void 0)`, reset:()=>`(void 0)`, ensureMove:a=>`(${a[0]})`,
 };
 
 function emitCallLike(s){
