@@ -18,7 +18,7 @@ if [ -n "$SRC" ] && [ -f "$SRC" ]; then
   echo "sync nifjs.js  ← local  $SRC"
   cp "$SRC" "$DEST"
 else
-  URL="https://raw.githubusercontent.com/aoughwl/nifjs/main/nifjs.js"
+  URL="https://raw.githubusercontent.com/aoughwl/nifjs-js/main/nifjs.js"
   echo "sync nifjs.js  ← remote $URL"
   command -v curl >/dev/null || { echo "FATAL: need curl (or set NIFJS_SRC)"; exit 1; }
   tmp="$(mktemp)"; curl -fsSL "$URL" -o "$tmp"
