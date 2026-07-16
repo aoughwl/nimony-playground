@@ -250,9 +250,13 @@ function emitModule(nodes){
     "function __wf(x){ __out += (Number.isInteger(x) ? x + '.0' : String(x)); }\n" +
     // add: string append (immutable → return new) vs seq push (mutate + return).
     "function __add(c, v){ if(typeof c === 'string') return c + v; c.push(v); return c; }\n" +
+    // expand a set-literal range lo..hi into the Set (chars or ints).
+    "function __setRange(s, lo, hi){ if(typeof lo === 'string'){ for(let i=lo.charCodeAt(0); i<=hi.charCodeAt(0); i++) s.add(String.fromCharCode(i)); } else { for(let i=lo; i<=hi; i++) s.add(i); } }\n" +
     [...emitted.values()].join("\n") + "\n" +
-    "function __main(){\n" + top.join("\n") + "\n}\n" +
-    "__main();\n" +
+    // top-level statements run directly at module scope (NOT wrapped in a
+    // function) so module-level `var`/`const`/`let` are visible to the procs
+    // above — procs are hoisted declarations that close over this scope.
+    top.join("\n") + "\n" +
     "return __out;\n"
   );
 }
@@ -520,6 +524,9 @@ function emitCallLike(s){
   if(name === "min") return "Math.min(" + rawArgs.map(emitExpr).join(", ") + ")";
   if(name === "max") return "Math.max(" + rawArgs.map(emitExpr).join(", ") + ")";
   if(name === "pop") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".pop())";
+  if(name === "incl") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".add(" + emitExpr(rawArgs[1]) + "))";
+  if(name === "excl") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".delete(" + emitExpr(rawArgs[1]) + "))";
+  if(name === "card") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".size)";
   if(!isAtom(callee)) throw Unsupported("indirect call");
   const base = opName(callee.atom), mn = mangle(callee.atom);
   // 1. a routine nifjs actually built (user proc, or a transpilable stdlib one)
@@ -624,6 +631,24 @@ function emitExpr(e){
     case "true": return "true";
     case "false": return "false";
     case "nil": return "null";
+    case "setconstr": {                        // set literal -> JS Set (elems + ranges)
+      const parts = e.kids.slice(1).map(el => isList(el) && el.tag === "range"
+        ? "__setRange(_s, " + emitExpr(el.kids[0]) + ", " + emitExpr(el.kids[1]) + ")"
+        : "_s.add(" + emitExpr(el) + ")");
+      return "(function(){ const _s = new Set(); " + parts.join("; ") + "; return _s; })()";
+    }
+    case "inset": {                            // membership: (inset TYPE SET VALUE)
+      const setNode = e.kids[1], val = e.kids[e.kids.length - 1];
+      if(isList(setNode) && setNode.tag === "setconstr"){
+        // inline `x in {a, b, c..d}` -> an OR-chain over a once-bound value.
+        const elems = setNode.kids.slice(1);
+        const conds = elems.map(el => isList(el) && el.tag === "range"
+          ? "(_v >= " + emitExpr(el.kids[0]) + " && _v <= " + emitExpr(el.kids[1]) + ")"
+          : "(_v === " + emitExpr(el) + ")").join(" || ") || "false";
+        return "(function(_v){ return " + conds + "; })(" + emitExpr(val) + ")";
+      }
+      return "(" + emitExpr(setNode) + ".has(" + emitExpr(val) + "))";   // set variable
+    }
     default: throw Unsupported("expr '" + t + "'");
   }
 }
