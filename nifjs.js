@@ -121,6 +121,12 @@ function opName(sym){
   return m ? m[1] : d.replace(/\.+$/, "");
 }
 function isIntLit(a){ return /^-?\d+$/.test(a); }
+// bit width of an integer type node like (i 64) / (u 32); default 64.
+function intBits(ty){
+  const w = ty.kids && ty.kids[ty.kids.length - 1];
+  const n = isAtom(w) ? parseInt(w.atom, 10) : NaN;
+  return Number.isFinite(n) ? n : 64;
+}
 function isFloatLit(a){ return /^-?\d+\.\d+([eE][-+]?\d+)?$/.test(a); }
 // Best-effort "is this expression statically a float?" — used only to pick the
 // float-preserving writer (7.0 vs 7). A float literal, or an arithmetic op whose
@@ -212,9 +218,9 @@ function emitModule(nodes){
   const emitted = new Map();     // mn -> js
   const failed = new Set();
   for(const r of routines){
-    if(emitted.has(r.mn) || failed.has(r.mn)) continue;
-    try { emitted.set(r.mn, emitProc(r.node)); }
-    catch(e){ if(e && e.__nifjsUnsupported) failed.add(r.mn); else throw e; }
+    if(emitted.has(r.mn)) continue;            // keep the first body that emits
+    try { emitted.set(r.mn, emitProc(r.node)); failed.delete(r.mn); }
+    catch(e){ if(e && e.__nifjsUnsupported){ if(!emitted.has(r.mn)) failed.add(r.mn); } else throw e; }
   }
   // 3. fixpoint: any emitted routine that references a failed one is itself
   //    unavailable (so we never emit a call to a dropped routine).
@@ -278,6 +284,7 @@ function emitStmts(node){ return node.kids.map(emitStmt).join("\n"); }
 
 function emitStmt(s){
   if(!isList(s)) throw Unsupported("statement atom");
+  if(SKIP_DECLS.has(s.tag)) return "";         // nested type/template/pragma/… : no runtime effect
   switch(s.tag){
     case "stmts": return emitStmts(s);
     case "result": {                          // (result :result.0 . . TYPE .)
@@ -543,11 +550,26 @@ function emitExpr(e){
   if(!isList(e)) throw Unsupported("expr");
   const t = e.tag;
   if(BINOP[t]){                               // (op TYPE a b) -> (a op b)
-    // JS numbers are exact to 2^53 — closer to nimony's int64 than a 32-bit
-    // (|0) truncation would be, so we emit plain arithmetic. (Values past 2^53,
-    // and exact int64 wraparound, are where you'd drop back to nifi.)
     const a = e.kids[e.kids.length - 2], b = e.kids[e.kids.length - 1];
-    return "(" + emitExpr(a) + " " + BINOP[t] + " " + emitExpr(b) + ")";
+    const A = emitExpr(a), B = emitExpr(b);
+    // Exact integer WRAPPING for sub-64-bit widths. JS numbers are float64
+    // (exact to 2^53), which is right for the default 64-bit `int`; but 8/16/32-bit
+    // arithmetic must wrap on overflow — this is what makes hashing correct
+    // (`hash * prime` in 32-bit), the fidelity self-hosting the checker needs.
+    if((t === "add" || t === "sub" || t === "mul") && isList(e.kids[0]) &&
+       (e.kids[0].tag === "i" || e.kids[0].tag === "u")){
+      const bits = intBits(e.kids[0]), uns = e.kids[0].tag === "u";
+      if(bits && bits < 64){
+        if(t === "mul" && bits === 32)
+          return uns ? "((Math.imul(" + A + ", " + B + ")) >>> 0)" : "(Math.imul(" + A + ", " + B + "))";
+        const raw = "(" + A + " " + BINOP[t] + " " + B + ")";
+        if(bits === 32) return uns ? "((" + raw + ") >>> 0)" : "((" + raw + ") | 0)";
+        const mask = (1 << bits) - 1;          // 8/16-bit
+        return uns ? "((" + raw + ") & " + mask + ")"
+                   : "(((" + raw + ") << " + (32 - bits) + ") >> " + (32 - bits) + ")";
+      }
+    }
+    return "(" + A + " " + BINOP[t] + " " + B + ")";
   }
   if(BINOP_NOTYPE[t]) return "(" + emitExpr(e.kids[0]) + " " + BINOP_NOTYPE[t] + " " + emitExpr(e.kids[1]) + ")";
   switch(t){
@@ -592,7 +614,7 @@ function emitExpr(e){
       throw Unsupported("infix '" + op + "'");
     }
     case "paren": case "expr": return "(" + emitExpr(e.kids[e.kids.length-1]) + ")";
-    case "conv": case "hconv": case "cast": {   // numeric conv: identity in JS…
+    case "conv": case "hconv": case "cast": case "dconv": {   // numeric conv: identity in JS…
       const v = e.kids[e.kids.length-1], ty = e.kids[0];
       // …except ord('A') lowers to (conv (i N) 'A') — a char→int widening.
       if(isChr(v) && isList(ty) && (ty.tag === "i" || ty.tag === "u")) return String(v.chr);
@@ -601,6 +623,7 @@ function emitExpr(e){
     case "haddr": case "addr": case "hderef": case "deref": return emitExpr(e.kids[e.kids.length-1]);  // no pointers in JS
     case "true": return "true";
     case "false": return "false";
+    case "nil": return "null";
     default: throw Unsupported("expr '" + t + "'");
   }
 }
