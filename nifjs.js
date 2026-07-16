@@ -6,16 +6,19 @@
 // exact linear-memory fidelity (int64 wraparound, ptr/ARC semantics) for ~1000x
 // speed — so it's the FAST path, with nifi as the faithful fallback.
 //
-// Coverage is a deliberate (growing) subset: procs + recursion (incl. mutual);
-// int & float arithmetic (float `/` kept distinct from int `div`) and
-// comparisons; logical and/or/not AND bitwise and/or/xor/not/shl/shr; if/elif/
-// else and if-EXPRESSIONS; case (statement & expression, incl. ranges); while
-// with break/continue; for over integer ranges AND over collections; inc/dec;
-// const; enums (values -> ordinals); seq/array literals + `array` indexing, len,
-// index (get/set), add/pop; objects (construct / field read+write) and tuples;
-// strings (concat, $, len, index, ord/chr); echo (float-aware); bool; and a
-// SHIM REGISTRY that maps stdlib / `importc` routines (math.*, strutils.*,
-// parse*, abs/min/max) to their native-JS equivalent — the FFI path.
+// Coverage is broad — it runs essentially all of the language nimony can
+// currently express: procs + recursion (mutual and NESTED / closures), GENERIC
+// instances (monomorphised); int & float arithmetic (float `/` kept distinct
+// from int `div`) + comparisons; logical and bitwise and/or/xor/not/shl/shr;
+// if/elif/else + if-EXPRESSIONS; case (statement & expression, ranges, string
+// selectors); while with break/continue; for over ranges, collections,
+// `countdown`, and `for i, x in` pairs; inc/dec; const, enums (-> ordinals),
+// `when`, discard; seq/array literals + indexing (get/set), len, add/pop (add is
+// seq-push / string-append aware); objects (construct / field read+write, incl.
+// through a seq), object VARIANTS, tuples (construct / access / unpack); strings
+// (concat, add, $, len, index, ord/chr); echo (float-aware); bool; and a SHIM
+// REGISTRY mapping stdlib / `importc` routines (math.*, strutils.*, parse*,
+// abs/min/max) to native JS — the FFI path.
 //
 // SAFETY: a `var`/`out` parameter (whose mutation can't round-trip through JS's
 // pass-by-value) drops the routine so its callers fall back — never silently
@@ -174,6 +177,14 @@ function scanEnums(root){
 const SKIP_DECLS = new Set(["import","comment","iterator","type","typevars",
   "include","converter","template","macro","pragmas","emit","using"]);
 
+// every proc/func name anywhere in the tree (nested/closures included).
+function collectAllRoutines(node, out){
+  if(!isList(node)) return;
+  if((node.tag === "proc" || node.tag === "func") && isAtom(node.kids[0]))
+    out.add(mangle(node.kids[0].atom));
+  for(const c of node.kids) collectAllRoutines(c, out);
+}
+
 function emitModule(nodes){
   // find the top-level (stmts ...) of the main module
   let root = null;
@@ -190,7 +201,10 @@ function emitModule(nodes){
     else if(!SKIP_DECLS.has(s.tag))
       topStmts.push(s);
   }
-  _defined = new Set(routines.map(r => r.mn));
+  // _defined = EVERY proc/func name in the module, nested ones included, so a
+  // call to a nested (closure) routine resolves. `routines` above stays
+  // top-level — nested ones are emitted inline inside their parent's body.
+  _defined = new Set(); collectAllRoutines(root, _defined);
   _available = null;
 
   // 2. emit each routine independently; one that hits an unsupported node just
@@ -228,6 +242,8 @@ function emitModule(nodes){
     "function __w(x){ __out += (x===true?'true':x===false?'false':String(x)); }\n" +
     // nimony prints a float with a decimal point (7.0, not 7); JS String drops it.
     "function __wf(x){ __out += (Number.isInteger(x) ? x + '.0' : String(x)); }\n" +
+    // add: string append (immutable → return new) vs seq push (mutate + return).
+    "function __add(c, v){ if(typeof c === 'string') return c + v; c.push(v); return c; }\n" +
     [...emitted.values()].join("\n") + "\n" +
     "function __main(){\n" + top.join("\n") + "\n}\n" +
     "__main();\n" +
@@ -282,6 +298,7 @@ function emitStmt(s){
       const v = s.kids[0];
       return v ? "return " + emitExpr(v) + ";" : "return;";
     }
+    case "proc": case "func": return emitProc(s);   // nested proc -> nested JS function (closure)
     case "if":    return emitIf(s);
     case "case":  return emitCase(s, false);
     case "while": return "while(" + emitExpr(s.kids[0]) + "){\n" + emitStmts(s.kids[1]) + "\n}";
@@ -374,26 +391,40 @@ function emitCase(node, asExpr){
 }
 
 function emitFor(s){
-  // (for ITER (unpackflat (let :i . . TYPE .)) BODY)
+  // (for ITER VARSPEC BODY). VARSPEC is (unpackflat (let :v …)…) — 1 var for a
+  // plain `for x in`, 2 for `for i, x in` (index, value).
   const iter = s.kids[0], varspec = s.kids[1], body = s.kids[2];
-  // loop variable
-  let vnode = varspec;
-  if(isList(varspec) && varspec.tag === "unpackflat") vnode = varspec.kids[0];
-  if(!isList(vnode) || !(vnode.tag === "let" || vnode.tag === "var")) throw Unsupported("for-var shape");
-  const v = mangle(vnode.kids[0].atom);
-  // range loop: (infix ..<|.. A B) — nimony lowers a..b / a..<b
+  let vnodes = [];
+  if(isList(varspec) && varspec.tag === "unpackflat")
+    vnodes = varspec.kids.filter(x => isList(x) && (x.tag === "let" || x.tag === "var"));
+  else if(isList(varspec) && (varspec.tag === "let" || varspec.tag === "var"))
+    vnodes = [varspec];
+  if(!vnodes.length) throw Unsupported("for-var shape");
+  const vs = vnodes.map(v => mangle(v.kids[0].atom));
+
+  // range loop: (infix ..<|.. A B)
   if(isList(iter) && iter.tag === "infix"){
     const op = isAtom(iter.kids[0]) ? opName(iter.kids[0].atom) : "";
     let cmp;
     if(op === "..<") cmp = "<";
     else if(op === "..") cmp = "<=";
     else throw Unsupported("for range op '" + op + "'");
-    const lo = iter.kids[1], hi = iter.kids[2];
-    return "for(let " + v + " = " + emitExpr(lo) + "; " + v + " " + cmp + " " + emitExpr(hi) + "; " + v + "++){\n" +
-           emitStmts(body) + "\n}";
+    return "for(let " + vs[0] + " = " + emitExpr(iter.kids[1]) + "; " + vs[0] + " " + cmp + " " +
+           emitExpr(iter.kids[2]) + "; " + vs[0] + "++){\n" + emitStmts(body) + "\n}";
   }
-  // collection loop: `for x in xs` over a seq/array/string -> for..of.
-  return "for(const " + v + " of " + emitExpr(collOf(iter)) + "){\n" + emitStmts(body) + "\n}";
+  // countdown(hi, lo, [step]) -> descending loop
+  if(isList(iter) && (iter.tag === "call" || iter.tag === "hcall") &&
+     isAtom(iter.kids[0]) && opName(iter.kids[0].atom) === "countdown"){
+    const step = iter.kids[3] ? emitExpr(iter.kids[3]) : "1";
+    return "for(let " + vs[0] + " = " + emitExpr(iter.kids[1]) + "; " + vs[0] + " >= " +
+           emitExpr(iter.kids[2]) + "; " + vs[0] + " -= " + step + "){\n" + emitStmts(body) + "\n}";
+  }
+  // collection loop over a seq/array/string.
+  const coll = emitExpr(collOf(iter));
+  if(vs.length >= 2)   // for i, x in xs -> index + value
+    return "{ const _c = " + coll + "; for(let " + vs[0] + " = 0; " + vs[0] + " < _c.length; " +
+           vs[0] + "++){ const " + vs[1] + " = _c[" + vs[0] + "];\n" + emitStmts(body) + "\n} }";
+  return "for(const " + vs[0] + " of " + coll + "){\n" + emitStmts(body) + "\n}";
 }
 
 // arithmetic/relational/bitwise tags whose FIRST kid is the result-type node
@@ -463,7 +494,10 @@ function emitCallLike(s){
     if(name === "[]=") return "(" + base + "[" + idx + "] = " + emitExpr(rawArgs[2]) + ")";
     return "(" + base + "[" + idx + "])";
   }
-  if(name === "add") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".push(" + emitExpr(rawArgs[1]) + "))";
+  if(name === "add"){                            // seq.add -> push; string.add -> reassign (JS strings are immutable)
+    const lv = emitExpr(unwrapAddr(rawArgs[0]));
+    return "(" + lv + " = __add(" + lv + ", " + emitExpr(rawArgs[1]) + "))";
+  }
   if(name === "$") return "String(" + emitExpr(rawArgs[0]) + ")";
   if(name === "high") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".length - 1)";
   if(name === "low") return "0";
