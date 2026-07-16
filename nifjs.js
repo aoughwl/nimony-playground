@@ -20,9 +20,11 @@
 // REGISTRY mapping stdlib / `importc` routines (math.*, strutils.*, parse*,
 // abs/min/max) to native JS — the FFI path.
 //
-// SAFETY: a `var`/`out` parameter (whose mutation can't round-trip through JS's
-// pass-by-value) drops the routine so its callers fall back — never silently
-// wrong. Enum/const/array/etc. that were once crashes or fall-backs are handled.
+// `var`/`out` parameters work: the arg is passed as a boxed accessor
+// ({get v/set v}) so mutation round-trips to the caller's variable (swap, inc x,
+// etc.). Correctness holds — the remaining fall-backs are OS/runtime externs
+// (filesystem/time), metaprogramming patterns, and features nimony can't yet
+// compile — not language gaps.
 //
 // ROBUSTNESS: nifjs never emits a reference to a routine it didn't emit — a call
 // to any proc/func it can't build (a complex stdlib routine, an unsupported
@@ -151,6 +153,13 @@ function unwrapAddr(n){
     n = n.kids[n.kids.length-1];
   return n;
 }
+// An lvalue target after stripping addr/deref, aware that a boxed var-param is
+// reached through `.v`. Used by the in-place builtins (inc/add/len/index/…).
+function emitLval(node){
+  const n = unwrapAddr(node);
+  if(isAtom(n) && _boxed.has(mangle(n.atom))) return mangle(n.atom) + ".v";
+  return emitExpr(n);
+}
 
 // ---------------------------------------------------------------------------
 // 3. emitter: node -> JS source string
@@ -161,6 +170,10 @@ function unwrapAddr(n){
 // Unsupported → clean fall back to nifi, so the emitted JS NEVER references an
 // undefined function (no runtime crash on an un-emittable stdlib routine).
 let _defined = new Set(), _available = null;
+// mangled names of the current proc's `var`/`out` params — passed by reference as
+// a boxed accessor {get v/set v}, so `hderef p` reads `p.v` and writing goes back
+// to the caller's variable. Saved/restored across (nested) proc emission.
+let _boxed = new Set();
 // enum value (mangled symbol) -> its ordinal string, collected from `type` decls.
 let _enumVals = new Map();
 function scanEnums(root){
@@ -270,18 +283,19 @@ function emitProc(p){
   // locate params list and the body (last stmts)
   const params = k.find(x => isList(x) && x.tag === "params");
   const paramNodes = params ? params.kids.filter(x => isList(x) && x.tag === "param") : [];
-  for(const pp of paramNodes){
-    // a `var`/`out` param has a `(mut …)`/`(out …)` type — mutation through it
-    // can't round-trip in JS (native values, no by-reference), so this routine
-    // isn't safe to transpile: drop it (callers fall back) rather than run wrong.
-    const ty = pp.kids[3];
-    if(isList(ty) && (ty.tag === "mut" || ty.tag === "out"))
-      throw Unsupported("var/out parameter (no pass-by-reference in JS)");
-  }
   const args = paramNodes.map(pp => mangle(pp.kids[0].atom));
   const body = [...k].reverse().find(x => isList(x) && x.tag === "stmts");
   if(!body) throw Unsupported("proc without body (forward decl / extern)");
-  return "function " + name + "(" + args.join(",") + "){\n" + emitStmts(body) + "\n}";
+  // `var`/`out` params (type `(mut …)`/`(out …)`) are boxed: the caller passes an
+  // accessor object, so mutation round-trips. Set _boxed for this body only.
+  const saved = _boxed;
+  _boxed = new Set(saved);
+  for(const pp of paramNodes){
+    const ty = pp.kids[3];
+    if(isList(ty) && (ty.tag === "mut" || ty.tag === "out")) _boxed.add(mangle(pp.kids[0].atom));
+  }
+  try { return "function " + name + "(" + args.join(",") + "){\n" + emitStmts(body) + "\n}"; }
+  finally { _boxed = saved; }
 }
 
 function emitStmts(node){ return node.kids.map(emitStmt).join("\n"); }
@@ -481,6 +495,7 @@ const SHIMS = {
   // because nifjs uses native JS values, so there's nothing to free/move.
   dealloc:()=>`(void 0)`, "=destroy":()=>`(void 0)`, "=wasMoved":()=>`(void 0)`,
   wasMoved:()=>`(void 0)`, reset:()=>`(void 0)`, ensureMove:a=>`(${a[0]})`,
+  move:a=>`(${a[0]})`, sink:a=>`(${a[0]})`,   // move/sink = identity under a GC
 };
 
 function emitCallLike(s){
@@ -497,24 +512,24 @@ function emitCallLike(s){
   }
   if(name === "&") return "(" + rawArgs.map(emitExpr).join(" + ") + ")";     // string concat
   if(name === "inc" || name === "dec"){          // (cmd inc (haddr x) [k]) -> x += k
-    const lval = emitExpr(unwrapAddr(rawArgs[0]));
+    const lval = emitLval(rawArgs[0]);
     const by = rawArgs.length >= 2 ? emitExpr(rawArgs[1]) : "1";
     return "(" + lval + (name === "inc" ? " += " : " -= ") + by + ")";
   }
   // seq / array / string builtins — nimony values map onto native JS ones, so
   // these become the obvious JS. `[]` is the index operator, decoded from \5B\5D.
-  if(name === "len") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".length)";
+  if(name === "len") return "(" + emitLval(rawArgs[0]) + ".length)";
   if(name === "[]" || name === "[]=") {          // index get/set
-    const base = emitExpr(unwrapAddr(rawArgs[0])), idx = emitExpr(rawArgs[1]);
+    const base = emitLval(rawArgs[0]), idx = emitExpr(rawArgs[1]);
     if(name === "[]=") return "(" + base + "[" + idx + "] = " + emitExpr(rawArgs[2]) + ")";
     return "(" + base + "[" + idx + "])";
   }
   if(name === "add"){                            // seq.add -> push; string.add -> reassign (JS strings are immutable)
-    const lv = emitExpr(unwrapAddr(rawArgs[0]));
+    const lv = emitLval(rawArgs[0]);
     return "(" + lv + " = __add(" + lv + ", " + emitExpr(rawArgs[1]) + "))";
   }
   if(name === "$") return "String(" + emitExpr(rawArgs[0]) + ")";
-  if(name === "high") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".length - 1)";
+  if(name === "high") return "(" + emitLval(rawArgs[0]) + ".length - 1)";
   if(name === "low") return "0";
   if(name === "newSeq" || name === "newSeqUninit" || name === "newSeqOfCap"){
     if(name === "newSeqOfCap") return "[]";
@@ -527,10 +542,10 @@ function emitCallLike(s){
   if(name === "abs") return "Math.abs(" + emitExpr(rawArgs[0]) + ")";
   if(name === "min") return "Math.min(" + rawArgs.map(emitExpr).join(", ") + ")";
   if(name === "max") return "Math.max(" + rawArgs.map(emitExpr).join(", ") + ")";
-  if(name === "pop") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".pop())";
-  if(name === "incl") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".add(" + emitExpr(rawArgs[1]) + "))";
-  if(name === "excl") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".delete(" + emitExpr(rawArgs[1]) + "))";
-  if(name === "card") return "(" + emitExpr(unwrapAddr(rawArgs[0])) + ".size)";
+  if(name === "pop") return "(" + emitLval(rawArgs[0]) + ".pop())";
+  if(name === "incl") return "(" + emitLval(rawArgs[0]) + ".add(" + emitExpr(rawArgs[1]) + "))";
+  if(name === "excl") return "(" + emitLval(rawArgs[0]) + ".delete(" + emitExpr(rawArgs[1]) + "))";
+  if(name === "card") return "(" + emitLval(rawArgs[0]) + ".size)";
   if(!isAtom(callee)) throw Unsupported("indirect call");
   const base = opName(callee.atom), mn = mangle(callee.atom);
   // 1. a routine nifjs actually built (user proc, or a transpilable stdlib one)
@@ -631,7 +646,17 @@ function emitExpr(e){
       if(isChr(v) && isList(ty) && (ty.tag === "i" || ty.tag === "u")) return String(v.chr);
       return emitExpr(v);
     }
-    case "haddr": case "addr": case "hderef": case "deref": return emitExpr(e.kids[e.kids.length-1]);  // no pointers in JS
+    case "hderef": case "deref": {             // read through a reference
+      const inner = e.kids[e.kids.length-1];
+      if(isAtom(inner) && _boxed.has(mangle(inner.atom))) return mangle(inner.atom) + ".v";
+      return emitExpr(inner);                  // not a boxed var-param ref: identity
+    }
+    case "haddr": case "addr": {               // take a reference (var-param argument)
+      const inner = e.kids[e.kids.length-1];
+      if(isAtom(inner) && _boxed.has(mangle(inner.atom))) return mangle(inner.atom);  // pass the box through
+      const lv = emitExpr(inner);              // box a plain lvalue as a get/set accessor
+      return "({get v(){ return " + lv + "; }, set v(_x){ " + lv + " = _x; }})";
+    }
     case "true": return "true";
     case "false": return "false";
     case "nil": return "null";
