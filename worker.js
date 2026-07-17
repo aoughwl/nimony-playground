@@ -216,15 +216,22 @@ function semCompile(pnif){
 // --- nifi: run a typed .s.nif ------------------------------------------------
 // Both engines read the same __nifi_* input globals and park their result on the
 // same output globals; a run is a fresh scope, so state never carries over.
+// The tree-walk + run-rung bundles were renamed nifi -> aowli and now speak
+// __aowli_*; the VM bundle still speaks __nifi_*. Feed BOTH namings and read
+// back whichever the loaded bundle wrote, so either vintage runs correctly.
 function resetNifiGlobals(snif, stdin){
-  globalThis.__nifi_in  = stdin || "";
-  globalThis.__nifi_src = snif;
-  globalThis.__nifi_out = ""; globalThis.__nifi_err = ""; globalThis.__nifi_exit = 0;
-  globalThis.__nifi_runnif = "";   // the run-rung bundle parks the serialized run here
+  globalThis.__nifi_in  = globalThis.__aowli_in  = stdin || "";
+  globalThis.__nifi_src = globalThis.__aowli_src = snif;
+  globalThis.__nifi_out = globalThis.__aowli_out = "";
+  globalThis.__nifi_err = globalThis.__aowli_err = "";
+  globalThis.__nifi_exit = globalThis.__aowli_exit = 0;
+  globalThis.__nifi_runnif = globalThis.__aowli_runnif = "";  // run-rung parks the serialized run here
 }
 function collectNifi(engine){
-  return { stdout: globalThis.__nifi_out || "", stderr: globalThis.__nifi_err || "",
-           exitCode: globalThis.__nifi_exit | 0, engine };
+  return { stdout: globalThis.__aowli_out || globalThis.__nifi_out || "",
+           stderr: globalThis.__aowli_err || globalThis.__nifi_err || "",
+           exitCode: (globalThis.__aowli_exit | 0) || (globalThis.__nifi_exit | 0),
+           engine };
 }
 // Out-of-memory: the nifi runtime is a bump allocator over a FIXED linear-memory
 // ArrayBuffer with no GC, so a program that allocates too much in total (big
@@ -313,7 +320,7 @@ async function handleRunRung(msg, id){
       if(e && e.__isExit) exitCode = parseInt(String(e.message).replace(/\D/g,""),10) || 0;
       else err = "runtime error: " + (e && e.message || e);
     }
-    self.postMessage({ id, ok:true, snif, runnif: globalThis.__nifi_runnif || "",
+    self.postMessage({ id, ok:true, snif, runnif: globalThis.__aowli_runnif || globalThis.__nifi_runnif || "",
                        exitCode, stderr: (globalThis.__nifi_err||"") + err, diags });
   }catch(e){
     self.postMessage({ id, ok:false, message: String(e && e.message || e) });
