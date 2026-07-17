@@ -200,6 +200,13 @@
   .tabs button{font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:3px 10px;border-radius:6px;background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;font-family:inherit}
   .tabs button.active{color:var(--fg);background:var(--panel2);border-color:var(--border)}
   /* small icon button living in a pane header (the layout toggle) */
+  .exportbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);flex:0 0 auto;font-size:12px}
+  .exportbar .exspacer{flex:1}
+  .exportbar .exchk{display:inline-flex;align-items:center;gap:6px;color:var(--muted);cursor:pointer;user-select:none}
+  .exportbar .exchk input{margin:0;cursor:pointer}
+  .exportbar .exchk code{background:var(--panel2);border-radius:4px;padding:0 4px}
+  .exportbar .exbtn{font-size:12px;padding:3px 10px;border:1px solid var(--border)}
+  .exportbar .exbtn.copied{color:var(--accent2);border-color:var(--accent2)}
   .paneBtn{background:transparent;border:0;padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center}
   .paneBtn:hover{color:var(--fg);background:var(--panel2)}
   .paneBtn.on{color:var(--accent);background:var(--panel2)}
@@ -424,6 +431,8 @@
         <button id="stabPnif" data-sview="pnif" data-tip="Parsed — the untyped .p.nif from nifparser">Parsed</button>
         <button id="stabSnif" data-sview="snif" data-tip="Typed — the .s.nif from nimsem (types &amp; symbols resolved)">Typed</button>
         <button id="stabRnif" data-sview="rnif" data-tip="Run rung — the execution serialized as NIF (from nifi)">Run</button>
+        <button id="stabTs" data-sview="ts" data-tip="Export TypeScript — idiomatic TypeScript via aowlts (runs in-browser)">TypeScript</button>
+        <button id="stabPy" data-sview="py" data-tip="Export Python — idiomatic Python 3 via aowlpy (runs in-browser)">Python</button>
       </div>
       <div class="statusline" id="statusLine" data-tip="Engine · live diagnostics · in-browser code intelligence"><span class="sdot"></span><span id="statusText">engine loading…</span></div>
       <span class="status" id="semStatus"></span>
@@ -436,6 +445,25 @@
       <div class="sview" id="sviewPnif"><pre id="pnif" class="nifview"><span class="sys">The parsed NIF (<code>.p.nif</code>) appears here live as you type — nifparser turns your source into nimony's untyped intermediate form.</span></pre></div>
       <div class="sview" id="sviewSnif"><pre id="snif" class="nifview"><span class="sys">The typed NIF (<code>.s.nif</code>) appears here after type-checking — nimsem resolves every symbol, overload and type on top of the parsed form.</span></pre></div>
       <div class="sview" id="sviewRnif"><pre id="rnif" class="nifview"><span class="sys">Press Run to see the program's execution serialized as NIF — the <em>run rung</em>: source → parsed → typed → <strong>run</strong>, the bottom of nifi's content-addressed compilation tower.</span></pre></div>
+      <div class="sview" id="sviewTs">
+        <div class="exportbar">
+          <label class="exchk" data-tip="Faithful export: 64-bit ints become BigInt and arithmetic wraps to the exact width (slower, exact). Off = idiomatic JS number.">
+            <input type="checkbox" id="faithfulChk"> faithful <code>int64</code>
+          </label>
+          <span class="exspacer"></span>
+          <button id="tsCopy" class="paneBtn exbtn" data-tip="Copy the TypeScript">Copy</button>
+          <button id="tsDl" class="paneBtn exbtn" data-tip="Download .ts">Download</button>
+        </div>
+        <pre id="tsout" class="nifview codeview"><span class="sys">Idiomatic <strong>TypeScript</strong> from your program — transpiled in your browser by <code>aowlts</code>, the same nimony toolchain compiled to JavaScript. Type-check first (the program must be valid); the TypeScript appears here.</span></pre>
+      </div>
+      <div class="sview" id="sviewPy">
+        <div class="exportbar">
+          <span class="exspacer"></span>
+          <button id="pyCopy" class="paneBtn exbtn" data-tip="Copy the Python">Copy</button>
+          <button id="pyDl" class="paneBtn exbtn" data-tip="Download .py">Download</button>
+        </div>
+        <pre id="pyout" class="nifview codeview"><span class="sys">Idiomatic <strong>Python 3</strong> from your program — transpiled in your browser by <code>aowlpy</code>. Type-check first (the program must be valid); the Python appears here.</span></pre>
+      </div>
     </div>
     <button id="showOut" class="fab" data-tip="Show the output panel">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.6 6.4L6.6 8l-2 1.6"/><line x1="8" y1="10" x2="11" y2="10"/></svg>
@@ -513,6 +541,7 @@ window.NifiOpts = window.NifiOpts || { curly:false };
 <script src="editor.js?v=8"></script>
 <script src="lsp.js?v=7"></script>
 <script src="curlyconvert.js?v=7"></script>
+<script src="exporters.js?v=1"></script>
 <script src="assemble.js?v=2"></script>
 <script src="offline.js?v=2"></script>
 <script>
@@ -521,6 +550,7 @@ window.NifiOpts = window.NifiOpts || { curly:false };
   const outEl=$("#out"), runBtn=$("#runBtn");
   // the three NIF rungs now live in the SOURCE pane's tabs (Parsed/Typed/Run).
   const pnifEl=$("#pnif"), snifEl=$("#snif"), rnifEl=$("#rnif");
+  const tsoutEl=$("#tsout"), pyoutEl=$("#pyout"), faithfulChk=$("#faithfulChk");
   const statusLine=$("#statusLine"), statusText=$("#statusText");
   const outStatus=$("#outStatus"), perf=$("#perf");
   const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -648,15 +678,85 @@ window.NifiOpts = window.NifiOpts || { curly:false };
   let curSrcView = "edit";
   function selectSrcView(v){
     curSrcView = v;
-    ["edit","pnif","snif","rnif"].forEach(k=>{
+    ["edit","pnif","snif","rnif","ts","py"].forEach(k=>{
       $("#stab"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
       $("#sview"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
     });
     if(v==="edit" && window.NifiEditor.relayout) window.NifiEditor.relayout();
     if(v==="rnif") ensureRunRung();
+    if(v==="ts" || v==="py") ensureExport(v);
   }
   document.querySelectorAll("#srcTabs button").forEach(b=>
     b.addEventListener("click",()=>selectSrcView(b.dataset.sview)));
+
+  // ---- Export TypeScript / Python (aowlts / aowlpy, compiled to JS) ----------
+  // Run the current buffer through the SAME frontend the Run/Typed tabs use
+  // (nifparser -> nimsem, giving the typed .s.nif), then hand that .s.nif to the
+  // in-browser aowlts / aowlpy transpiler and show the emitted source. Lazy (only
+  // when the tab is active) and memoized on (source, faithful) so revisiting or a
+  // no-op edit doesn't re-transpile. `code` is kept for the Copy / Download acts.
+  const tsMemo = { key:null, code:"" }, pyMemo = { key:null, code:"" };
+  async function ensureExport(kind, force){
+    const el = kind==="ts" ? tsoutEl : pyoutEl;
+    const memo = kind==="ts" ? tsMemo : pyMemo;
+    const faithful = kind==="ts" && faithfulChk && faithfulChk.checked;
+    if(!window.NifiExport){ el.innerHTML='<span class="err">exporter unavailable.</span>'; return; }
+    if(!(window.NifiParser && window.NifiParser.ready)){ el.innerHTML='<span class="sys">parser still loading…</span>'; memo.key=null; return; }
+    if(!(window.NifiSem && window.NifiSem.ready)){ el.innerHTML='<span class="sys">type-checker still loading…</span>'; memo.key=null; return; }
+    const src = window.NifiEditor.getValue();
+    const key = (faithful?"1":"0")+"\0"+src;
+    if(!force && memo.key===key) return;
+    const bad = (window.NifiCore && window.NifiCore.checkImports) ? window.NifiCore.checkImports(src) : [];
+    if(bad.length){ el.innerHTML='<span class="err">● unavailable import — '+esc(bad[0].message)+'</span>'; memo.key=null; return; }
+    let nif, sdiags;
+    try{ const r = window.NifiParser.parseFull(src, "in.nim"); nif=r.nif; sdiags=r.diags; }
+    catch(e){ el.innerHTML='<span class="err">parse error: '+esc(e&&e.message||e)+'</span>'; memo.key=null; return; }
+    if(sdiags && sdiags.length){ el.innerHTML='<span class="err">● syntax error: '+esc(sdiags[0].message)+' (line '+sdiags[0].line+')</span>'; memo.key=null; return; }
+    el.innerHTML='<span class="sys">exporting…</span>';
+    try{
+      const { snif, diags } = await window.NifiSem.compile(nif);
+      if(window.NifiEditor.getValue() !== src) return;   // buffer moved on
+      if(!snif){
+        const n = (diags||[]).length;
+        el.innerHTML = n
+          ? '<span class="err">● '+n+' type '+(n===1?'error':'errors')+' — fix them to export:</span>\n'+
+              diags.map(d=>'  '+(d.line>0?d.line+':'+d.col:'⚠')+'  '+esc(d.message)).join('\n')
+          : '<span class="sys">the program did not type-check.</span>';
+        memo.key=null; return;
+      }
+      const t0 = performance.now();
+      const code = kind==="ts"
+        ? await window.NifiExport.toTypeScript(snif, faithful)
+        : await window.NifiExport.toPython(snif);
+      const ms = (performance.now()-t0).toFixed(0);
+      if(window.NifiEditor.getValue() !== src) return;   // buffer moved on again
+      memo.key=key; memo.code=code;
+      el.innerHTML = esc(code) + "\n" + nifMeta(
+        (kind==="ts" ? "idiomatic TypeScript · aowlts" : "idiomatic Python 3 · aowlpy")
+        + (faithful?" · faithful (int64→BigInt)":"") + " · " + code.length + " bytes · " + ms + " ms");
+    }catch(e){
+      el.innerHTML='<span class="err">export failed: '+esc(e&&e.message||e)+'</span>'; memo.key=null;
+    }
+  }
+  function copyExport(text, btn){
+    if(!text) return;
+    const done=()=>{ const o=btn.textContent; btn.textContent="Copied"; btn.classList.add("copied");
+      setTimeout(()=>{ btn.textContent=o; btn.classList.remove("copied"); },1300); };
+    if(navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(()=>prompt("Copy:",text));
+    else prompt("Copy:",text);
+  }
+  function downloadExport(text, name){
+    if(!text) return;
+    const blob=new Blob([text],{type:"text/plain"}), url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),8000);
+  }
+  $("#tsCopy").addEventListener("click",()=>copyExport(tsMemo.code,$("#tsCopy")));
+  $("#pyCopy").addEventListener("click",()=>copyExport(pyMemo.code,$("#pyCopy")));
+  $("#tsDl").addEventListener("click",()=>downloadExport(tsMemo.code,"program.ts"));
+  $("#pyDl").addEventListener("click",()=>downloadExport(pyMemo.code,"program.py"));
+  if(faithfulChk) faithfulChk.addEventListener("change",()=>{ if(curSrcView==="ts") ensureExport("ts",true); });
 
   // ---- live diagnostics: FAST syntax (nifparser) + DEBOUNCED semantic (nimsem) ----
   let syntaxDiags = [], semDiags = [], outShowingProblems = false;
@@ -806,6 +906,9 @@ window.NifiOpts = window.NifiOpts || { curly:false };
         : (cached
             ? '<span class="ok">● type-checked · incremental (reused, 0 ms)</span>'
             : '<span class="ok">● type-checked in '+ms+' ms</span>'));
+      // keep an open Export tab live as the source changes (memoized: a no-op edit
+      // won't re-transpile).
+      if(curSrcView==="ts" || curSrcView==="py") ensureExport(curSrcView);
     }catch(e){ /* stopped / transient worker failure — keep last markers */ }
   }
   function semStatus(html){ const el=$("#semStatus"); if(el) el.innerHTML = html||""; }

@@ -77,6 +77,8 @@ pipeline.js     owns the Web Worker; sem / run / runrung / stop
 worker.js       the worker: nimsem + nifi (VM, tree-walker, run rung)
 curlyconvert.js colon ⇄ curly source rewriter
 examples.js     the starter program
+exporters.js    Export TypeScript / Python seam (drives aowlts.js / aowlpy.js)
+exporters/      web entries for the exporters (compiled by build-exporters.sh)
 assets/snif/    pre-compiled .s.nif for examples
 assets/*.bin    pre-compiled stdlib closure for nimsem
 
@@ -86,7 +88,22 @@ nimsem.js       the semantic checker  (~8.9 MB)
 nifi.js         interpreter, tree-walker
 nifi_vm.js      interpreter, bytecode VM (fast path)
 nifi_run.js     interpreter, tree-walker + run-rung emitter (lazy-loaded)
+aowlts.js       idiomatic-TypeScript exporter (aowlts) (~1.5 MB)
+aowlpy.js       idiomatic-Python exporter   (aowlpy) (~1.5 MB)
 ```
+
+## Export TypeScript / Python
+
+The source pane's **TypeScript** and **Python** tabs transpile the current
+program to idiomatic, hand-written-looking source — real TS/Python types and
+control flow, not linear memory — entirely client-side. They run the buffer
+through the same frontend the other tabs use (nifparser → nimsem → the typed
+`.s.nif`) and hand that `.s.nif` to [`aowlts`](https://github.com/aoughwl/aowlts)
+/ [`aowlpy`](https://github.com/aoughwl/aowlpy), nimony programs compiled to
+JavaScript by the very same `nim_js` backend that builds the parser/interpreter
+bundles (see `build-exporters.sh`). The TypeScript tab has a **faithful** toggle
+(`int64` → `BigInt`, exact-width arithmetic); each panel offers Copy / Download.
+Output is byte-identical to the native `bin/aowlts` / `bin/aowlpy` CLIs.
 
 ## Local preview
 
