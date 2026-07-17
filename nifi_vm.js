@@ -166,6 +166,9 @@ function _jsvLive(){ return _jsv.length - 1 - _jsvFree.length; }   // live slot 
 // two calls (length, then copy) so no scratch region leaks — and since JS
 // strings are immutable, both just encode the same handle (no cached state).
 const _td = new TextDecoder(), _te = new TextEncoder();
+// NB: `.slice` (a fresh non-resizable copy), not `.subarray` (a view) — since the
+// heap is now a *resizable* ArrayBuffer, TextDecoder.decode() rejects views over
+// it ("ArrayBuffer value must not be resizable").
 function _strToJs(p, n){ return _jsNew(_td.decode(_u8.slice(Number(p), Number(p) + Number(n)))); }
 function _jsStrLen(h){ return _te.encode(String(_jsv[h])).length; }
 function _jsStrInto(h, dst){ _u8.set(_te.encode(String(_jsv[h])), Number(dst)); }
