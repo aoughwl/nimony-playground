@@ -679,8 +679,14 @@ window.NifiOpts = window.NifiOpts || { curly:false };
         ? { col:c, endCol:(d.endCol|0)+1 }
         : snapCol(d.message, lines[d.line-1]||"", c);
       const sev = d.severity || "error";
-      marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:d.message, severity:sev });
-      problems.push({ line:d.line, col:s.col, message:d.message, severity:sev });
+      // aowlparser `check` now ships an optional suggested `fix` and a `related`
+      // "opened here" location. Fold the fix into the squiggle's hover message and
+      // pass the related span + code through so Monaco renders a secondary marker
+      // and the quick-fix provider can offer an edit.
+      const msg = d.message + (d.fix ? "\n💡 " + d.fix : "");
+      marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:msg, severity:sev,
+                   code:d.code||"", fix:d.fix||"", related:d.related||null });
+      problems.push({ line:d.line, col:s.col, message:d.message, severity:sev, fix:d.fix||"" });
     }
     for(const d of semDiags){
       if(d.line < 1){                     // unknown location (internal checker error):
@@ -757,7 +763,8 @@ window.NifiOpts = window.NifiOpts || { curly:false };
       const banner = syntaxDiags.length
         ? '<span class="err">● '+syntaxDiags.length+' syntax '+
             (syntaxDiags.length===1?'error':'errors')+':\n'+
-            syntaxDiags.map(d=>'  '+d.line+':'+((d.col|0)+1)+'  '+esc(d.message)).join('\n')+'</span>\n\n'
+            syntaxDiags.map(d=>'  '+d.line+':'+((d.col|0)+1)+'  '+esc(d.message)+
+            (d.fix?'\n        💡 '+esc(d.fix):'')).join('\n')+'</span>\n\n'
         : '';
       pnifEl.innerHTML = banner + renderNif(nif) + "\n" +
         nifMeta('parsed in '+ms+' ms · '+nif.length+' bytes'+

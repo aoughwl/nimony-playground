@@ -249,11 +249,28 @@
     setDiagnostics(markers){
       if(usingFallback || !monacoRef || !editor) return;
       const sev = s => ({error:8, warning:4, info:2, hint:1}[s] || 8);
-      monacoRef.editor.setModelMarkers(editor.getModel(), "nimony", (markers||[]).map(m=>({
-        startLineNumber:m.line||1, startColumn:m.col||1,
-        endLineNumber:m.endLine||m.line||1, endColumn:m.endCol||(m.col||1)+1,
-        message:m.message||"", severity:sev(m.severity)
-      })));
+      const model = editor.getModel();
+      monacoRef.editor.setModelMarkers(model, "nimony", (markers||[]).map(m=>{
+        const mk = {
+          startLineNumber:m.line||1, startColumn:m.col||1,
+          endLineNumber:m.endLine||m.line||1, endColumn:m.endCol||(m.col||1)+1,
+          message:m.message||"", severity:sev(m.severity)
+        };
+        // aowlparser diagnostic slug (e.g. "assignment-in-condition") — lets the
+        // quick-fix provider recognise which parser fix applies.
+        if(m.code) mk.code = String(m.code);
+        // a RELATED source location (the `(` an unclosed bracket was opened at):
+        // Monaco renders it as a secondary underline with its own hover.
+        if(m.related && m.related.line){
+          mk.relatedInformation = [{
+            resource: model.uri,
+            message: m.related.message || "",
+            startLineNumber: m.related.line, startColumn: (m.related.col|0)+1,
+            endLineNumber: m.related.line, endColumn: (m.related.col|0)+2
+          }];
+        }
+        return mk;
+      }));
     }
   };
 

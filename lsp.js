@@ -706,6 +706,20 @@
     reg("registerCodeActionProvider", "codeAction", {
       provideCodeActions(model, range, context){
         const actions = [], added = new Set(), text = model.getValue();
+        // aowlparser parse fixes: the classic `=`/`==` typo. The marker `code`
+        // identifies it and its range is exactly the offending `=`, so replacing
+        // that span with `==` is a deterministic, safe quick-fix.
+        for(const d of (context.markers || [])){
+          if(String(d.code||"") !== "assignment-in-condition") continue;
+          actions.push({
+            title: "Change `=` to `==`",
+            kind: "quickfix",
+            diagnostics: [d],
+            isPreferred: true,
+            edit: { edits: [ { resource: model.uri,
+              textEdit: { range: new monaco.Range(d.startLineNumber, d.startColumn, d.endLineNumber, d.endColumn), text: "==" } } ] },
+          });
+        }
         for(const d of (context.markers || [])){
           const m = /undeclared identifier:\s*'?([A-Za-z_]\w*)'?/.exec(d.message || "");
           if(!m) continue;
