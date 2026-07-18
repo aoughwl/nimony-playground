@@ -736,7 +736,40 @@
               textEdit: { range: new monaco.Range(1,1,1,1), text: "import " + mod + "\n" } } ] },
           });
         }
-        return { actions, dispose(){} };
+        // aowlsuggest quick-fixes: computed on the main thread from the parser's
+        // diagnostics (see suggest.js + index.html runParse) and stashed on
+        // window.__nifiSuggestFixes. Its coordinates are line 1-based, col 0-based
+        // (endLine/endCol likewise) — shift cols +1 for Monaco. Only offer a fix
+        // whose diagnostic line intersects the range Monaco is asking about; attach
+        // it to the matching marker (same code + line) so it appears as that
+        // diagnostic's quick-fix. `kind:"auto"` maps to a preferred quickfix.
+        const sfixes = (typeof window !== "undefined" && window.__nifiSuggestFixes) || [];
+        for(const f of sfixes){
+          const sl = f.line | 0, el = (f.endLine != null ? f.endLine | 0 : sl);
+          const sc = (f.col | 0) + 1, ec = (f.endCol != null ? (f.endCol | 0) + 1 : sc);
+          if(el < range.startLineNumber || sl > range.endLineNumber) continue;
+          const marker = (context.markers || []).find(d =>
+                            String(d.code||"") === String(f.code||"") && d.startLineNumber === sl)
+                      || (context.markers || []).find(d => d.startLineNumber === sl);
+          const auto = f.kind === "auto";
+          actions.push({
+            title: f.title || f.message || "Apply fix",
+            kind: "quickfix",
+            diagnostics: marker ? [marker] : [],
+            isPreferred: auto && !!f.isPreferred,
+            edit: { edits: [ { resource: model.uri,
+              textEdit: { range: new monaco.Range(sl, sc, el, ec), text: f.newText || "" } } ] },
+          });
+        }
+        // Dedupe: the curated fixes above (e.g. `=`→`==`) may coincide with an
+        // aowlsuggest fix for the same span — collapse identical (title + edit) ones.
+        const seen = new Set();
+        const deduped = actions.filter(a => {
+          const e = a.edit && a.edit.edits && a.edit.edits[0];
+          const k = (a.title||"") + "|" + (e ? JSON.stringify(e.textEdit.range) + "|" + e.textEdit.text : "");
+          if(seen.has(k)) return false; seen.add(k); return true;
+        });
+        return { actions: deduped, dispose(){} };
       }
     });
   }

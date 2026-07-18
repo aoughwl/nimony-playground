@@ -50,6 +50,12 @@
 //   So the VM is the FAST PATH and the tree-walker is the always-correct
 //   fallback (see runSnif).
 let semMain = null, nifiMain = null, nifiVmMain = null, stdlibBlob = null, nsCheckFn = null, semJsText = null;
+// aowlsem (the experimental AOWL semantic checker) bundle text. Unlike nimsem it
+// has NO warm-closure model, so we keep only the source and evaluate a fresh
+// `new Function` per check (exactly like the main-thread parser). Best-effort:
+// null if the bundle isn't in this build, in which case the aowl path degrades to
+// a clean "unavailable" diagnostic rather than throwing.
+let asJsText = null;
 // The run-rung bundle (webmain_run.nim): the tree-walker with the run emitter ON,
 // which also parks the serialized execution on globalThis.__nifi_runnif. It's an
 // EXTRA ~1.7 MB, only needed when the user opens the "Run" NIF tab, so we fetch and
@@ -119,12 +125,14 @@ async function boot(){
   // serialized behind the ~1 s warm-sem step below (that step, not the fetches,
   // is what makes "engine ready" take a moment — it type-checks the whole stdlib
   // closure once so every later compile is ~15 ms).
-  const [semJs, nifiJs, nifiVmJs, asset, njsText] = await Promise.all([
+  const [semJs, nifiJs, nifiVmJs, asset, njsText, asJs] = await Promise.all([
     loadText("nimsem.js"), loadText("nifi.js"), loadText("nifi_vm.js"), loadStdlibBytes(),
-    loadText("nifjs.js").catch(()=>null)         // best-effort; fast path falls back if absent
+    loadText("nifjs.js").catch(()=>null),        // best-effort; fast path falls back if absent
+    loadText("aowlsem.js").catch(()=>null)       // best-effort; aowl sem path stays disabled if absent
   ]);
   stdlibBlob = bytesToLatin1(asset);
   semJsText = semJs;
+  asJsText  = asJs;                              // the experimental aowlsem checker (may be null)
   // nifi: compile once; each run gets a fresh scope (fresh linear memory) — cheap
   // (~5 ms of init), and a clean interpreter state per run is what we want.
   nifiMain   = new Function(nifiJs   + "\nmain(0, []);");
@@ -211,6 +219,64 @@ function semCompile(pnif){
   const res = semFresh(pnif);
   cachePut(pnif, { snif:res.snif, diags:res.diags });
   return { snif:res.snif, diags:res.diags, cached:false };
+}
+
+// --- aowlsem: the EXPERIMENTAL alternative semantic checker -------------------
+// Contract (a JS mirror of aowlsem's webmain, parallel to the parser's): set
+// globalThis.__as_pnif = the .p.nif, invoke a FRESH `new Function` (aowlsem has no
+// warm-closure model — every check re-runs module init), then read __as_snif (the
+// typed .s.nif, "" on failure) and __as_diag (a JSON array). aowlsem is system-less
+// in the browser: it type-checks builtin arithmetic/if/case/while but has NO
+// `system` module, so string/seq/echo programs yield honest "undeclared" diags and
+// an empty .s.nif. We normalize its diagnostics to the SAME shape nimsem's
+// parseDiags returns ({line, col, severity, message}) so the UI treats both alike.
+function normalizeAowlDiags(raw){
+  let arr = [];
+  try{ arr = JSON.parse(raw || "[]"); }catch(_){ return []; }
+  if(!Array.isArray(arr)) return [];
+  return arr.map(d => ({
+    line: d.line | 0,
+    // aowlsem reports col 0-based (like the parser); nimsem/Monaco want 1-based.
+    col: (d.col | 0) + 1,
+    severity: d.severity === "warning" ? "warning" : "error",
+    message: String(d.message || "").trim()
+  }));
+}
+// Its own LRU key namespace (prefixed) so an aowl result never collides with the
+// nimsem cache keyed on the raw .p.nif.
+function semCompileAowl(pnif){
+  pnif = String(pnif);
+  if(!asJsText)
+    return { snif:"", cached:false,
+             diags:[{ line:0, col:0, severity:"error",
+                      message:"aowlsem (experimental) is not available in this build" }] };
+  const key = "aowl\0" + pnif;
+  const hit = cacheGet(key);
+  if(hit) return { snif:hit.snif, diags:hit.diags, cached:true };
+  globalThis.__as_pnif = pnif;
+  globalThis.__as_snif = "";
+  globalThis.__as_diag = "[]";
+  let snif = "", diags = [];
+  try{
+    (new Function(asJsText + "\nmain(0,[]);"))();   // fresh module-init per check
+    snif  = globalThis.__as_snif || "";
+    diags = normalizeAowlDiags(globalThis.__as_diag);
+  }catch(e){
+    // A throw still commonly leaves located diagnostics parked; surface those, and
+    // otherwise a single honest "couldn't check" note (never crash the worker).
+    diags = normalizeAowlDiags(globalThis.__as_diag);
+    if(!diags.length) diags = [{ line:0, col:0, severity:"error",
+      message:"aowlsem (experimental) could not check this program: " + (e && e.message || e) }];
+    snif = "";
+  }
+  cachePut(key, { snif, diags });
+  return { snif, diags, cached:false };
+}
+
+// Route the semcheck stage to the selected engine: "aowl" -> aowlsem (experimental),
+// anything else -> nimsem (the default). Both return { snif, diags, cached }.
+function runSem(pnif, semEngine){
+  return semEngine === "aowl" ? semCompileAowl(pnif) : semCompile(pnif);
 }
 
 // --- nifi: run a typed .s.nif ------------------------------------------------
@@ -310,7 +376,7 @@ function runByEngine(snif, stdin, engine){
 //     so normal runs stay on the VM; this only fires when the "Run" NIF tab is open.
 async function handleRunRung(msg, id){
   try{
-    const { snif, diags } = semCompile(msg.pnif);
+    const { snif, diags } = runSem(msg.pnif, msg.semEngine);
     if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", runnif:"", diags }); return; }
     await ensureRunBundle();
     resetNifiGlobals(snif, msg.stdin);
@@ -344,14 +410,18 @@ self.onmessage = (ev) => {
   try{
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
     if(msg.type === "sem"){
-      const { snif, diags, cached } = semCompile(msg.pnif);
+      // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental).
+      const { snif, diags, cached } = runSem(msg.pnif, msg.semEngine);
       self.postMessage({ id, ok:true, snif, diags, cached });
       return;
     }
     if(msg.type === "run" || msg.type === "fastrun"){
       // engine: "tree" | "vm" | "nifjs". ("fastrun" is a legacy alias for nifjs.)
       const engine = msg.engine || (msg.type === "fastrun" ? "nifjs" : "vm");
-      const { snif, diags } = semCompile(msg.pnif);
+      // semEngine picks which checker produces the .s.nif that nifi then runs;
+      // if aowlsem couldn't check it (empty snif), the ranSem path below reports
+      // its diagnostics instead of trying to run nothing.
+      const { snif, diags } = runSem(msg.pnif, msg.semEngine);
       if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
       const res = runByEngine(snif, msg.stdin, engine);
       res.diags = diags;

@@ -11,11 +11,22 @@
   const sem = { ready:false, compile:null };
   let hits = 0, misses = 0, warm = 0;
 
-  // pnif: the `.p.nif` string. Returns Promise<{ snif, diags, cached }>.
-  sem.compile = function(pnif){
+  // Which semantic checker to use: "nim" (nimsem, default) or "aowl" (aowlsem,
+  // experimental). Callers may pass it explicitly; otherwise we follow the global
+  // toggle the UI flips (window.NifiOpts.sem), mirroring how the parser follows
+  // window.NifiOpts.curly.
+  function semEngine(explicit){
+    if(explicit === "nim" || explicit === "aowl") return explicit;
+    const g = (window.NifiOpts && window.NifiOpts.sem);
+    return g === "aowl" ? "aowl" : "nim";
+  }
+
+  // pnif: the `.p.nif` string. `eng` (optional) overrides the global sem toggle.
+  // Returns Promise<{ snif, diags, cached }>.
+  sem.compile = function(pnif, eng){
     if(!(window.NifiPipe && window.NifiPipe.ready))
       return Promise.reject(new Error("nimsem not loaded yet"));
-    return window.NifiPipe.sem(pnif).then(m => {
+    return window.NifiPipe.sem(pnif, semEngine(eng)).then(m => {
       if(m.cached) hits++; else { misses++; warm = Math.min(warm + 1, 8); }
       return { snif:m.snif, diags:m.diags || [], cached:!!m.cached };
     });

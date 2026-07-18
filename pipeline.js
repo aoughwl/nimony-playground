@@ -74,12 +74,14 @@
     });
   }
 
-  pipe.sem = (pnif) => request("sem", { pnif:String(pnif) });
-  // engine: "tree" | "vm" | "nifjs" (default "vm").
-  pipe.run = (pnif, stdin, engine) => request("run", { pnif:String(pnif), stdin:String(stdin||""), engine: engine||"vm" });
+  // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental). It selects
+  // which semantic checker turns the .p.nif into the typed .s.nif inside the worker.
+  pipe.sem = (pnif, semEngine) => request("sem", { pnif:String(pnif), semEngine: semEngine||"nim" });
+  // engine: "tree" | "vm" | "nifjs" (default "vm"). semEngine as above.
+  pipe.run = (pnif, stdin, engine, semEngine) => request("run", { pnif:String(pnif), stdin:String(stdin||""), engine: engine||"vm", semEngine: semEngine||"nim" });
   // run rung: execute on the tree-walker with the run emitter on, returning the
   // serialized execution NIF (see worker.js handleRunRung). Lazy-loads nifi_run.js.
-  pipe.runrung = (pnif, stdin) => request("runrung", { pnif:String(pnif), stdin:String(stdin||"") });
+  pipe.runrung = (pnif, stdin, semEngine) => request("runrung", { pnif:String(pnif), stdin:String(stdin||""), semEngine: semEngine||"nim" });
 
   // Kill the in-flight run (if any) and hand back a fresh worker. Any pending
   // request is rejected with a `stopped` flag so callers can distinguish a user

@@ -92,14 +92,20 @@
   .actions button:hover{background:var(--panel2)}
   .actions button:disabled{opacity:.5;cursor:progress}
   .actions button.curly.on{color:var(--brace);background:var(--brace-bg)}
-  /* engine picker: sits in the segmented action bar, matching its buttons */
-  #engineSel{appearance:none;-webkit-appearance:none;border:0;border-left:1px solid var(--border);
+  /* engine + semantics pickers: sit in the segmented action bar, matching its buttons */
+  #engineSel,#semSel{appearance:none;-webkit-appearance:none;border:0;border-left:1px solid var(--border);
     background:var(--panel);color:var(--fg);font:inherit;font-size:12.5px;cursor:pointer;
     padding:0 26px 0 12px;height:100%;outline:none;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3l4 4 4-4' fill='none' stroke='%239aa3b2' stroke-width='1.4'/%3E%3C/svg%3E");
     background-repeat:no-repeat;background-position:right 9px center}
-  #engineSel:hover{background-color:var(--panel2)}
+  #engineSel:hover,#semSel:hover{background-color:var(--panel2)}
   #engineSel.nifjs{color:var(--accent2)}
+  /* aowl (experimental) sem selected → tint the picker and show the tag */
+  #semSel.aowl{color:var(--accent2)}
+  .expTag{display:inline-flex;align-items:center;height:100%;padding:0 9px;font-size:10.5px;
+    font-weight:650;letter-spacing:.03em;text-transform:uppercase;color:var(--accent2);
+    border-left:1px solid var(--border);white-space:nowrap;cursor:default}
+  .expTag[hidden]{display:none}
   .actions button.copied{color:var(--accent2)}
   .actions button.run{background:var(--accent);color:#fff;font-weight:650;border-left-color:transparent;padding:0 17px}
   .actions button.run:hover{filter:brightness(1.08);background:var(--accent)}
@@ -412,6 +418,11 @@
     <button id="themeBtn" data-tip="Toggle light / dark theme">
       <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 000 10.8z" fill="currentColor"/></svg>
     </button>
+    <span id="semExp" class="expTag" hidden data-tip="aowlsem is an experimental, system-less semantic checker: it type-checks builtin arithmetic / if / case / while, but has no std `system` module — so programs using string, seq or echo produce honest “undeclared identifier” diagnostics.">experimental</span>
+    <select id="semSel" aria-label="Semantic checker" data-tip="Which semantic checker type-checks your program. nim (nimsem) is the full, default checker. aowl (aowlsem) is an experimental alternative — system-less, so it checks builtin arithmetic / if / case / while but reports string/seq/echo as undeclared.">
+      <option value="nim">nim · nimsem</option>
+      <option value="aowl">aowl · aowlsem</option>
+    </select>
     <select id="engineSel" aria-label="Execution engine" data-tip="How your program runs. Bytecode VM & Tree-walk are the faithful nimony interpreter; Native JS transpiles to JavaScript for near-native speed (unsupported programs fall back automatically).">
       <option value="vm">Bytecode VM</option>
       <option value="tree">Tree-walk</option>
@@ -528,18 +539,23 @@
     };
 })();
 // Shared client-side options — the curly-brace toggle lives here so parser.js /
-// engine.js pick it up without any coupling to the header UI. Toggled below.
+// engine.js pick it up without any coupling to the header UI. The `sem` field
+// selects the semantic checker ("nim" = nimsem, the default; "aowl" = aowlsem,
+// experimental) and is read by sem.js / engine.js the same decoupled way. Toggled
+// below.
 window.NifiOpts = window.NifiOpts || { curly:false };
+if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
 </script>
 <!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
      refresh (the big bundles are fetched separately and change rarely). -->
 <script src="examples.js?v=6"></script>
-<script src="pipeline.js?v=14"></script>
-<script src="engine.js?v=10"></script>
+<script src="pipeline.js?v=15"></script>
+<script src="engine.js?v=11"></script>
 <script src="parser.js?v=9"></script>
-<script src="sem.js?v=8"></script>
+<script src="sem.js?v=9"></script>
+<script src="suggest.js?v=1"></script>
 <script src="editor.js?v=8"></script>
-<script src="lsp.js?v=7"></script>
+<script src="lsp.js?v=8"></script>
 <script src="curlyconvert.js?v=7"></script>
 <script src="exporters.js?v=1"></script>
 <script src="assemble.js?v=2"></script>
@@ -857,6 +873,11 @@ window.NifiOpts = window.NifiOpts || { curly:false };
       if(window.NifiLsp) window.NifiLsp.update(src, nif);
       syntaxDiags = diags || [];
       if(syntaxDiags.length) semDiags = [];
+      // aowlsuggest quick-fixes over the parser's diagnostics — computed here on the
+      // main thread (aowlsuggest is tiny, no worker) and stashed for the Monaco
+      // code-action provider (see lsp.js). Robust: returns [] if unavailable/throws.
+      window.__nifiSuggestFixes = (window.NifiSuggest && window.NifiSuggest.ready)
+        ? window.NifiSuggest.compute(src, syntaxDiags) : [];
       refreshMarkers();
       // only surface a banner when there ARE syntax errors — a clean parse just
       // shows the NIF (no "no syntax errors" noise).
@@ -993,6 +1014,38 @@ window.NifiOpts = window.NifiOpts || { curly:false };
   });
   paintEngine();
 
+  // ---- semantic-checker picker: "nim" (nimsem, default) | "aowl" (aowlsem,
+  //      experimental) (persisted). The choice lives on window.NifiOpts.sem, which
+  //      sem.js / engine.js read to route the semcheck stage in the worker. When
+  //      aowl is active we show the "experimental" tag and re-check the buffer so
+  //      the switch is immediate. ----
+  const semSel = $("#semSel"), semExp = $("#semExp");
+  let semMode = "nim";
+  try{ const s = localStorage.getItem("np-sem"); if(s==="nim"||s==="aowl") semMode = s; }catch(_){}
+  window.NifiOpts.sem = semMode;
+  semSel.value = semMode;
+  const SEM_DESC = {
+    nim:  "nimsem — nimony's full semantic checker: resolves every symbol, overload and type against the bundled std library. The default.",
+    aowl: "aowlsem (experimental) — a system-less alternative checker. It type-checks builtin arithmetic / if / case / while, but has no std `system` module, so programs using string, seq or echo report honest “undeclared identifier” diagnostics."
+  };
+  function paintSem(){
+    const aowl = semMode==="aowl";
+    semSel.classList.toggle("aowl", aowl);
+    if(semExp) semExp.hidden = !aowl;
+  }
+  semSel.addEventListener("change",()=>{
+    semMode = semSel.value==="aowl" ? "aowl" : "nim";
+    window.NifiOpts.sem = semMode;
+    paintSem();
+    try{ localStorage.setItem("np-sem", semMode); }catch(_){}
+    print('<span class="sys">'+SEM_DESC[semMode]+'</span>');
+    // re-check the current buffer with the newly selected checker (drop any stale
+    // sem markers first so the switch reads clean).
+    semDiags = []; refreshMarkers();
+    runSemCheck();
+  });
+  paintSem();
+
   // ---- Run rung: the program's execution serialized as NIF (nifi_run.js — the
   //      tree-walker with the run emitter on). Computed ON DEMAND (opening the Run
   //      tab, or a Run while it's active), never on live edit since it executes the
@@ -1008,7 +1061,7 @@ window.NifiOpts = window.NifiOpts || { curly:false };
     try{
       const { nif, diags:syn } = window.NifiParser.parseFull(src, "in.nim");
       if(syn && syn.length){ rnifEl.innerHTML='<span class="err">syntax error — cannot trace the run.</span>'; return; }
-      const m = await window.NifiPipe.runrung(nif, stdin);
+      const m = await window.NifiPipe.runrung(nif, stdin, window.NifiOpts.sem);
       if(window.NifiEditor.getValue()!==src) return;   // buffer moved on; a later open refetches
       if(m.runnif){
         runRungKey=key; rnifEl.dataset.ok="1";

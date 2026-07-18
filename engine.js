@@ -70,7 +70,11 @@
       return { stdout:"", stderr:"syntax error: "+synDiags[0].message+" (line "+synDiags[0].line+")", exitCode:1 };
     // 2+3. semcheck (worker, cached) + run (worker) on the chosen engine
     // ("tree" | "vm" | "nifjs"). nifjs falls back to nifi on unsupported nodes.
-    const m = await window.NifiPipe.run(nif, stdin, engine);
+    // The semcheck stage uses whichever checker the sem toggle selects; if aowlsem
+    // (experimental) is picked and can't produce a .s.nif, the ranSem branch below
+    // reports its diagnostics rather than trying to run an empty program.
+    const semEng = (window.NifiOpts && window.NifiOpts.sem === "aowl") ? "aowl" : "nim";
+    const m = await window.NifiPipe.run(nif, stdin, engine, semEng);
     if(!m.snif && m.ranSem){
       const msg = (m.diags && m.diags.length)
         ? m.diags.map(d=>"  "+d.line+":"+d.col+"  "+d.message).join("\n")
