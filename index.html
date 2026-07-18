@@ -396,6 +396,15 @@
     .pane .label{padding:7px 12px}
     footer{padding:8px 12px;font-size:11px}
     footer > span:not(.badge):not(#perf){display:none}
+    /* toolbar can't fit one row on a phone (two dropdowns + buttons + run) —
+       let the whole header wrap: brand on top, the action controls flow onto
+       their own full-width row(s) below instead of overflowing off-screen. */
+    header{flex-wrap:wrap;align-items:center}
+    .brand{flex:1 1 auto}
+    .actions{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-start;
+             border-top:1px solid var(--border)}
+    #semSel,#engineSel{flex:1 1 auto;min-width:0}
+    .actions button.run{flex:1 1 auto;justify-content:center;display:flex;align-items:center}
   }
   /* when the SOURCE PANE (not the viewport) is narrow — whether on a phone or
      because the split gutter shrank the editor — keep the tab bar on ONE line and
