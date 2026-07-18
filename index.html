@@ -170,6 +170,11 @@
   .view.active,.sview.active{display:flex;animation:viewIn .18s ease}
   @keyframes viewIn{from{opacity:0}to{opacity:1}}
   .srcbody{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+  /* the Stages tab holds a segmented sub-selector (Source/Parsed/Typed/Run); its
+     four stage panels are mutually exclusive, same idea as .sview one level up. */
+  .stagebody{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+  .stg{display:none;flex:1;min-height:0;flex-direction:column}
+  .stg.active{display:flex;animation:viewIn .18s ease}
   #editor{flex:1;min-height:0}
   textarea#fallback{flex:1;resize:none;border:0;outline:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6;padding:14px;tab-size:2;display:none}
   #out,.nifview{flex:1;margin:0;overflow:auto;padding:14px;font-family:var(--mono);font-size:13px;line-height:1.55;white-space:pre-wrap;color:var(--fg)}
@@ -443,23 +448,33 @@
   <section class="pane src">
     <div class="label">
       <div class="tabs" id="srcTabs">
-        <button id="stabEdit" class="active" data-sview="edit" data-tip="Your nimony source">Source</button>
-        <button id="stabPnif" data-sview="pnif" data-tip="Parsed — the untyped .p.nif from nifparser">Parsed</button>
-        <button id="stabSnif" data-sview="snif" data-tip="Typed — the .s.nif from nimsem (types &amp; symbols resolved)">Typed</button>
-        <button id="stabRnif" data-sview="rnif" data-tip="Run rung — the execution serialized as NIF (from aowli)">Run</button>
+        <button id="stabStages" class="active" data-sview="stages" data-tip="Stages — Source · Parsed (.p.aif) · Typed (.s.aif) · Run (.run.aif): the compilation tower for the current buffer">Stages</button>
         <button id="stabExport" data-sview="export" data-tip="Export — idiomatic JavaScript / TypeScript / Python / C, transpiled in-browser">Export</button>
       </div>
       <div class="statusline" id="statusLine" data-tip="Engine · live diagnostics · in-browser code intelligence"><span class="sdot"></span><span id="statusText">engine loading…</span></div>
       <span class="status" id="semStatus"></span>
     </div>
     <div class="srcbody">
-      <div class="sview active" id="sviewEdit">
-        <div id="editor"></div>
-        <textarea id="fallback" spellcheck="false"></textarea>
+      <div class="sview active" id="sviewStages">
+        <div class="exportbar">
+          <div class="tabs exseg" id="stageSeg">
+            <button class="active" data-stage="edit" data-tip="Source — your nimony program (.nim / .aowl)">Source</button>
+            <button data-stage="pnif" data-tip="Parsed — the untyped .p.aif from the parser">Parsed</button>
+            <button data-stage="snif" data-tip="Typed — the .s.aif from the semchecker (types &amp; symbols resolved)">Typed</button>
+            <button data-stage="rnif" data-tip="Run rung — the execution serialized as .run.aif (from aowli)">Run</button>
+          </div>
+          <span id="stageMeta" class="exmeta"></span>
+        </div>
+        <div class="stagebody">
+          <div class="stg active" id="stgEdit">
+            <div id="editor"></div>
+            <textarea id="fallback" spellcheck="false"></textarea>
+          </div>
+          <div class="stg" id="stgPnif"><pre id="pnif" class="nifview"><span class="sys">The parsed NIF (<code>.p.aif</code>) appears here live as you type — the parser turns your source into nimony's untyped intermediate form.</span></pre></div>
+          <div class="stg" id="stgSnif"><pre id="snif" class="nifview"><span class="sys">The typed NIF (<code>.s.aif</code>) appears here after type-checking — the semchecker resolves every symbol, overload and type on top of the parsed form.</span></pre></div>
+          <div class="stg" id="stgRnif"><pre id="rnif" class="nifview"><span class="sys">Press Run to see the program's execution serialized as NIF — the <em>run rung</em> (<code>.run.aif</code>): source → parsed → typed → <strong>run</strong>, the bottom of aowli's content-addressed compilation tower.</span></pre></div>
+        </div>
       </div>
-      <div class="sview" id="sviewPnif"><pre id="pnif" class="nifview"><span class="sys">The parsed NIF (<code>.p.nif</code>) appears here live as you type — nifparser turns your source into nimony's untyped intermediate form.</span></pre></div>
-      <div class="sview" id="sviewSnif"><pre id="snif" class="nifview"><span class="sys">The typed NIF (<code>.s.nif</code>) appears here after type-checking — nimsem resolves every symbol, overload and type on top of the parsed form.</span></pre></div>
-      <div class="sview" id="sviewRnif"><pre id="rnif" class="nifview"><span class="sys">Press Run to see the program's execution serialized as NIF — the <em>run rung</em>: source → parsed → typed → <strong>run</strong>, the bottom of aowli's content-addressed compilation tower.</span></pre></div>
       <div class="sview" id="sviewExport">
         <div class="exportbar">
           <div class="tabs exseg" id="exportTargets">
@@ -689,24 +704,64 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
   document.querySelectorAll(".pane.out .tabs button").forEach(b=>
     b.addEventListener("click",()=>selectTab(b.dataset.view)));
 
-  // ---- source-pane tabs (Source | Parsed .p.nif | Typed .s.nif | Run rung) ----
-  // The editor and the three NIF rungs share the pane; switching just flips which
-  // .sview is active. Monaco must be told to relayout when its container reappears
-  // (it renders 0-height while display:none), and the Run rung is fetched lazily
-  // the first time you land on it.
-  let curSrcView = "edit";
+  // ---- source-pane tabs (Stages | Export) ----
+  // The four compilation-tower stages (Source / Parsed / Typed / Run) collapse into
+  // ONE "Stages" tab whose segmented sub-selector flips between them — same pattern
+  // as the Export tab's target selector. Export stays its own tab.
+  let curSrcView = "stages";
   function selectSrcView(v){
     curSrcView = v;
-    ["edit","pnif","snif","rnif","export"].forEach(k=>{
+    ["stages","export"].forEach(k=>{
       $("#stab"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
       $("#sview"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
     });
-    if(v==="edit" && window.AowliEditor.relayout) window.AowliEditor.relayout();
-    if(v==="rnif") ensureRunRung();
+    if(v==="stages") applyStage();
     if(v==="export"){ layoutExportEditor(); ensureExport(); }
   }
   document.querySelectorAll("#srcTabs button").forEach(b=>
     b.addEventListener("click",()=>selectSrcView(b.dataset.sview)));
+
+  // ---- Stages sub-selector: Source · Parsed · Typed · Run, with a meta line that
+  //      surfaces each step's REAL .aif name (mirrors Export's meta line). The
+  //      selected stage persists; default Source. `edit` shows the live Monaco
+  //      editor (relayout on reveal); the NIF rungs share the .stg body below. ----
+  const STAGE_INFO = {
+    edit: { label:"source", aif:()=> (window.AowliOpts && window.AowliOpts.curly) ? ".aowl" : ".nim" },
+    pnif: { label:"parsed", aif:()=>".p.aif" },
+    snif: { label:"typed",  aif:()=>".s.aif" },
+    rnif: { label:"run rung", aif:()=>".run.aif" },
+  };
+  const STAGES = ["edit","pnif","snif","rnif"];
+  // byte counts of the produced NIF/AIF for each stage (null ⇒ not available yet);
+  // the live source length is read on demand.
+  const stageBytes = { edit:null, pnif:null, snif:null, rnif:null };
+  let curStage = "edit";
+  try{ const s = localStorage.getItem("np-stage"); if(STAGES.indexOf(s)>=0) curStage = s; }catch(_){}
+  function updateStageMeta(){
+    const el = $("#stageMeta"); if(!el) return;
+    const info = STAGE_INFO[curStage];
+    const bytes = curStage==="edit"
+      ? (window.AowliEditor ? window.AowliEditor.getValue().length : null)
+      : stageBytes[curStage];
+    el.textContent = info.label + " · " + info.aif() +
+      (bytes==null ? "" : " · " + bytes + " bytes");
+  }
+  function applyStage(){
+    if(curStage==="edit" && window.AowliEditor.relayout) window.AowliEditor.relayout();
+    if(curStage==="rnif") ensureRunRung();
+    updateStageMeta();
+  }
+  function selectStage(s){
+    curStage = s;
+    try{ localStorage.setItem("np-stage", s); }catch(_){}
+    document.querySelectorAll("#stageSeg button").forEach(b=>b.classList.toggle("active", b.dataset.stage===s));
+    STAGES.forEach(k=>$("#stg"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===s));
+    applyStage();
+  }
+  document.querySelectorAll("#stageSeg button").forEach(b=>
+    b.addEventListener("click",()=>selectStage(b.dataset.stage)));
+  // reflect the persisted stage on load (paints the segment + panel + meta).
+  selectStage(curStage);
 
   // ---- Export: JavaScript / TypeScript / Python / C (aowljs/aowlts/aowlpy/aowlc,
   //      each compiled to JS) -----------------------------------------------------
@@ -924,6 +979,8 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     parseTimer=setTimeout(runParse, 200);
     if(semTimer) clearTimeout(semTimer);
     semTimer=setTimeout(runSemCheck, 500);
+    // keep the Source stage's live byte count fresh as you type
+    if(curSrcView==="stages" && curStage==="edit") updateStageMeta();
   }
   function runParse(){
     if(!window.AowliParser || !window.AowliParser.ready){
@@ -954,8 +1011,10 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       pnifEl.innerHTML = banner + renderNif(nif) + "\n" +
         nifMeta('parsed in '+ms+' ms · '+nif.length+' bytes'+
           (window.AowliOpts&&window.AowliOpts.curly?' · curly mode':''));
+      stageBytes.pnif = nif.length; if(curSrcView==="stages" && curStage==="pnif") updateStageMeta();
     }catch(e){
       pnifEl.innerHTML='<span class="err">parse error: '+esc(e&&e.message||e)+'</span>';
+      stageBytes.pnif = null; if(curSrcView==="stages" && curStage==="pnif") updateStageMeta();
     }
   }
   async function runSemCheck(){
@@ -982,13 +1041,15 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       semDiags = diags || [];
       refreshMarkers();
       const nErr = semDiags.length;
-      // fill the Typed tab with the .s.nif (or the type errors, if it didn't check)
+      // fill the Typed stage with the .s.aif (or the type errors, if it didn't check)
       if(snif) snifEl.innerHTML = renderNif(snif) + "\n" +
-        nifMeta('typed .s.nif · '+snif.length+' bytes'+(cached?' · reused':' · '+ms+' ms'));
+        nifMeta('typed .s.aif · '+snif.length+' bytes'+(cached?' · reused':' · '+ms+' ms'));
       else snifEl.innerHTML = nErr
         ? '<span class="err">● '+nErr+' type '+(nErr===1?'error':'errors')+' — fix them to see the typed NIF:</span>\n'+
             semDiags.map(d=>'  '+(d.line>0?d.line+':'+d.col:'⚠')+'  '+esc(d.message)).join('\n')
         : '<span class="sys">no typed NIF (the program did not type-check).</span>';
+      stageBytes.snif = snif ? snif.length : null;
+      if(curSrcView==="stages" && curStage==="snif") updateStageMeta();
       semStatus(nErr
         ? '<span class="err">● '+nErr+' type '+(nErr===1?'error':'errors')+'</span>'
         : (cached
@@ -1054,7 +1115,7 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       parts.push('<span class="'+(res.oom?'err':'ok')+'">— exit '+(res.exitCode|0)+' · '+ms+' ms'+eng+'</span>');
       print(parts.join('\n')); perf.textContent=ms+" ms"; scrollOutToBottom(true);
       // keep the Run rung in sync with what just executed, if it's on screen
-      if(curSrcView==="rnif") ensureRunRung(true);
+      if(curSrcView==="stages" && curStage==="rnif") ensureRunRung(true);
     }catch(e){
       if(e && e.stopped) print('<span class="err">■ stopped — the program was terminated.</span>');
       else print('<span class="err">'+esc(e&&e.message||e)+'</span>');
@@ -1133,12 +1194,16 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       if(m.runnif){
         runRungKey=key; rnifEl.dataset.ok="1";
         rnifEl.innerHTML = renderNif(m.runnif) + "\n" +
-          nifMeta('run rung · '+m.runnif.length+' bytes · exit '+(m.exitCode|0)+' · tree-walker + run emitter');
+          nifMeta('run rung .run.aif · '+m.runnif.length+' bytes · exit '+(m.exitCode|0)+' · tree-walker + run emitter');
+        stageBytes.rnif = m.runnif.length;
       } else if(m.ranSem && !m.snif){
         rnifEl.innerHTML='<span class="err">the program did not type-check — no run rung.</span>';
+        stageBytes.rnif = null;
       } else {
         rnifEl.innerHTML='<span class="sys">no run rung was produced'+(m.stderr?': '+esc(m.stderr):'.')+'</span>';
+        stageBytes.rnif = null;
       }
+      if(curSrcView==="stages" && curStage==="rnif") updateStageMeta();
     }catch(e){
       rnifEl.innerHTML='<span class="err">run rung unavailable: '+esc(e&&e.message||e)+'</span>';
     }finally{ runRungBusy=false; }
