@@ -276,6 +276,27 @@
     return out;
   }
   lsp.outline = function(){
+    // Prefer aowllens decls (kinds + positions straight from the typed .s.nif),
+    // reconstructing the routine→params/locals nesting from document order. Falls
+    // back to the lsp.js text index when aowllens is unavailable or errors.
+    try{
+      const lens = (typeof ensureLens === "function") ? ensureLens() : null;
+      if(lens && lens.decls){
+        const arr = JSON.parse(lens.decls);
+        if(Array.isArray(arr) && arr.length){
+          const PARENT = new Set(["proc","func","method","iterator","template","macro","converter","type"]);
+          const out = []; let cur = null;
+          for(const d of arr){
+            const item = { name:d.name, detail:"", kind:d.kind,
+              line:(d.line|0)||1, col:((d.col|0)+1)||1, children:[] };
+            if(PARENT.has(d.kind)){ out.push(item); cur = item; }
+            else if(cur){ cur.children.push(item); }
+            else out.push(item);
+          }
+          return out;
+        }
+      }
+    }catch(_){}
     const m = window.NifiEditor.getModel();
     if(!m) return [];
     const flat = o => ({ name:o.sym.name, detail:o.sym.detail, kind:o.sym.kind,
@@ -547,14 +568,177 @@
     readLine:"std/syncio", stdout:"std/syncio", stdin:"std/syncio", stderr:"std/syncio",
   };
 
+  // ---------------------------------------------------------------------------
+  // 4b. aowllsp / aowllens — the in-process language server.
+  // ---------------------------------------------------------------------------
+  // Two nimony-web bundles compiled to JS (like the exporters): aowllens.js is a
+  // NIF query engine over the typed `.s.nif`, aowllsp.js is the LSP that turns its
+  // JSON into LSP-shaped responses. Both are eval-per-call: compile the bundle to a
+  // callable ONCE, re-invoke per request (fresh linear memory each time, exactly as
+  // parser.js / exporters.js do). We run them ON THE MAIN THREAD, synchronously —
+  // the `.s.nif` is already here (fed in from the semcheck via lsp.setSnif) and a
+  // synchronous eval keeps the Monaco providers simple (they can return arrays).
+  //
+  // aowllens is asked once per `.s.nif` for decls/index/calls (cached); aowllsp is
+  // asked per request. If either bundle is missing or throws, every helper returns
+  // null and the provider falls back to lsp.js's own hand-written logic. Contracts:
+  //   aowllens: IN __al_snif/__al_cmd("decls"|"index"|"calls")/__al_arg/__al_mod
+  //             OUT __al_out (JSON) / __al_err
+  //   aowllsp:  IN __ls_req(JSON {feature,file,line,col,query}, line/col 0-based)
+  //             + __ls_src/__ls_snif/__ls_decls/__ls_index/__ls_calls/__ls_render
+  //             OUT __ls_res (LSP-shaped JSON) / __ls_err
+  // (This build's aowllens has no `render` subcommand, so __ls_render is always "";
+  // that only means aowllsp hover returns null — the provider then falls back.)
+  const AL = { lensMain:null, lspMain:null, loading:false, loaded:false, failed:false,
+               snif:null, source:"", monaco:null,
+               cache:{ snif:null, decls:"", index:"", calls:"" },
+               symKind:null, compKind:null };
+
+  function loadBundleText(name){
+    const inline = (typeof window !== "undefined" && window.__NIFI_INLINE);
+    if(inline && inline.bundles && inline.bundles[name] != null)
+      return Promise.resolve(inline.bundles[name]);
+    return fetch(name).then(r=>{ if(!r.ok) throw new Error(name+" HTTP "+r.status); return r.text(); });
+  }
+  function ensureAL(){
+    if(AL.loaded || AL.loading || AL.failed) return;
+    AL.loading = true;
+    Promise.all([loadBundleText("aowllens.js"), loadBundleText("aowllsp.js")])
+      .then(([lens, lspSrc])=>{
+        AL.lensMain = new Function(lens   + "\nmain(0, []);");
+        AL.lspMain  = new Function(lspSrc + "\nmain(0, []);");
+        AL.loaded = true;
+      })
+      .catch(()=>{ AL.failed = true; });   // stay on the lsp.js fallback
+  }
+  // Fed from index.html's runSemCheck: the current typed .s.nif + its source.
+  lsp.setSnif = function(snif, source){
+    AL.snif = snif ? String(snif) : null;
+    AL.source = String(source || "");
+    ensureAL();
+  };
+
+  function lensRun(cmd){
+    if(!AL.lensMain || !AL.snif) return "";
+    globalThis.__al_snif = AL.snif; globalThis.__al_cmd = cmd;
+    globalThis.__al_arg = ""; globalThis.__al_mod = "main";
+    globalThis.__al_out = ""; globalThis.__al_err = "";
+    try{ AL.lensMain(); }catch(_){ return ""; }
+    return globalThis.__al_out || "";
+  }
+  function ensureLens(){
+    if(!AL.lensMain || !AL.snif) return null;
+    if(AL.cache.snif === AL.snif) return AL.cache;
+    AL.cache = { snif:AL.snif, decls:lensRun("decls"), index:lensRun("index"), calls:lensRun("calls") };
+    return AL.cache;
+  }
+  function lspRun(feature, line, col, query){
+    if(!AL.lspMain || !AL.snif) return null;
+    const lens = ensureLens(); if(!lens) return null;
+    globalThis.__ls_req    = JSON.stringify({ feature, file:"in.nim", line, col, query:query||"" });
+    globalThis.__ls_src    = AL.source;
+    globalThis.__ls_snif   = AL.snif;
+    globalThis.__ls_decls  = lens.decls;
+    globalThis.__ls_index  = lens.index;
+    globalThis.__ls_calls  = lens.calls;
+    globalThis.__ls_render = "";
+    globalThis.__ls_res    = "";
+    globalThis.__ls_err    = "";
+    try{ AL.lspMain(); }catch(_){ return null; }
+    if(globalThis.__ls_err) return null;
+    try{ const v = JSON.parse(globalThis.__ls_res || "null"); return v; }catch(_){ return null; }
+  }
+
+  // LSP kind numbers (protocol, 1-based) -> Monaco enum values. Built once from the
+  // live monaco enums so it stays correct across monaco versions (Monaco's numbering
+  // differs from the LSP protocol, especially for CompletionItemKind).
+  function buildKindMaps(monaco){
+    const SK = monaco.languages.SymbolKind, CK = monaco.languages.CompletionItemKind;
+    AL.symKind = {1:SK.File,2:SK.Module,3:SK.Namespace,4:SK.Package,5:SK.Class,6:SK.Method,
+      7:SK.Property,8:SK.Field,9:SK.Constructor,10:SK.Enum,11:SK.Interface,12:SK.Function,
+      13:SK.Variable,14:SK.Constant,15:SK.String,16:SK.Number,17:SK.Boolean,18:SK.Array,
+      19:SK.Object,20:SK.Key,21:SK.Null,22:SK.EnumMember,23:SK.Struct,24:SK.Event,
+      25:SK.Operator,26:SK.TypeParameter};
+    AL.compKind = {1:CK.Text,2:CK.Method,3:CK.Function,4:CK.Constructor,5:CK.Field,6:CK.Variable,
+      7:CK.Class,8:CK.Interface,9:CK.Module,10:CK.Property,11:CK.Unit,12:CK.Value,13:CK.Enum,
+      14:CK.Keyword,15:CK.Snippet,16:CK.Color,17:CK.File,18:CK.Reference,19:CK.Folder,
+      20:CK.EnumMember,21:CK.Constant,22:CK.Struct,23:CK.Event,24:CK.Operator,25:CK.TypeParameter};
+  }
+  function symKindFromLsp(monaco, n){ const v = AL.symKind && AL.symKind[n]; return v!=null ? v : monaco.languages.SymbolKind.Variable; }
+  function compKindFromLsp(monaco, n){ const v = AL.compKind && AL.compKind[n]; return v!=null ? v : monaco.languages.CompletionItemKind.Variable; }
+  // LSP range {start:{line,character},end} (0-based) -> Monaco Range (1-based). A
+  // zero-width range (aowllsp emits declaration POINTS) is widened to the word at
+  // that position so navigation lands on, and references highlight, the identifier.
+  function rangeFromLsp(monaco, lr, model){
+    if(!lr || !lr.start) return null;
+    let sl = (lr.start.line|0)+1, sc = (lr.start.character|0)+1;
+    let el = (lr.end ? lr.end.line|0 : lr.start.line|0)+1;
+    let ec = (lr.end ? lr.end.character|0 : lr.start.character|0)+1;
+    if(sl===el && sc===ec && model){
+      const w = model.getWordAtPosition({ lineNumber:sl, column:sc });
+      if(w){ sc = w.startColumn; ec = w.endColumn; } else ec = sc+1;
+    }
+    return new monaco.Range(sl, sc, el, ec);
+  }
+
+  // aowllsp-backed provider helpers — each returns a Monaco-shaped result, or null
+  // to signal "fall back to the lsp.js implementation".
+  function alSymbols(monaco, model){
+    const arr = lspRun("symbols", 0, 0, "");
+    if(!Array.isArray(arr)) return null;
+    return arr.map(s=>{
+      const r = rangeFromLsp(monaco, s.range, model) || new monaco.Range(1,1,1,1);
+      const sel = rangeFromLsp(monaco, s.selectionRange || s.range, model) || r;
+      return { name:s.name||"", detail:s.detail||"", kind:symKindFromLsp(monaco, s.kind),
+               range:r, selectionRange:sel, tags:[] };
+    });
+  }
+  function alCompletionItems(monaco, model, range){
+    const res = lspRun("completion", 0, 0, "");
+    const items = res && Array.isArray(res.items) ? res.items : null;
+    if(!items) return null;
+    return items.map(it=>({ label:it.label, kind:compKindFromLsp(monaco, it.kind),
+      detail:it.detail||"", insertText:it.insertText||it.label, range }));
+  }
+  function alHover(monaco, model, position){
+    const r = lspRun("hover", position.lineNumber-1, position.column-1, "");
+    if(!r || r.contents==null) return null;
+    let vals = [];
+    const c = r.contents;
+    const push = x => { if(x==null) return;
+      if(typeof x === "string") vals.push({ value:x });
+      else if(x.value!=null) vals.push({ value:String(x.value) }); };
+    if(Array.isArray(c)) c.forEach(push); else push(c);
+    if(!vals.length) return null;
+    const range = rangeFromLsp(monaco, r.range, model);
+    return range ? { range, contents:vals } : { contents:vals };
+  }
+  function alDefinition(monaco, model, position){
+    const arr = lspRun("definition", position.lineNumber-1, position.column-1, "");
+    if(!Array.isArray(arr) || !arr.length) return null;
+    const out = [];
+    for(const d of arr){ const r = rangeFromLsp(monaco, d.range, model); if(r) out.push({ uri:model.uri, range:r }); }
+    return out.length ? out : null;
+  }
+  function alReferences(monaco, model, position){
+    const arr = lspRun("references", position.lineNumber-1, position.column-1, "");
+    if(!Array.isArray(arr) || !arr.length) return null;
+    const out = [];
+    for(const d of arr){ const r = rangeFromLsp(monaco, d.range, model); if(r) out.push({ uri:model.uri, range:r }); }
+    return out.length ? out : null;
+  }
+
   function register(monaco){
     const LANG = "nimony";
+    AL.monaco = monaco; buildKindMaps(monaco); ensureAL();
     // register a provider and keep a handle on lsp.providers for introspection.
     const reg = (method, key, prov) => { lsp.providers[key] = prov; return monaco.languages[method](LANG, prov); };
 
     // --- outline / breadcrumbs ---
     monaco.languages.registerDocumentSymbolProvider(LANG, {
       provideDocumentSymbols(model){
+        const al = alSymbols(monaco, model);   // aowllsp-backed; null → fall back
+        if(al) return al;
         const text = model.getValue();
         const out = [];
         let cursor = 0;
@@ -580,6 +764,8 @@
     // --- hover ---
     monaco.languages.registerHoverProvider(LANG, {
       provideHover(model, position){
+        const al = alHover(monaco, model, position);   // aowllsp-backed; null → fall back
+        if(al) return al;
         // builtin std module inside an import line: honest note, goto not wired
         // (feature 2). Detect the import context first so this never collides
         // with the identifier hover below — a module path isn't a real symbol.
@@ -616,6 +802,8 @@
     // --- go to definition ---
     monaco.languages.registerDefinitionProvider(LANG, {
       provideDefinition(model, position){
+        const al = alDefinition(monaco, model, position);   // aowllsp-backed; null → fall back
+        if(al) return al;
         const w = model.getWordAtPosition(position);
         if(!w) return null;
         const hits = lsp.index.byName.get(w.word);
@@ -643,11 +831,20 @@
         }
         const w = model.getWordUntilPosition(position);
         const range = new monaco.Range(position.lineNumber, w.startColumn, position.lineNumber, w.endColumn);
-        const seen = new Set(), items = [];
-        for(const s of lsp.index.symbols){
-          if(seen.has(s.name+"#"+s.kind)) continue; seen.add(s.name+"#"+s.kind);
-          items.push({ label:s.name, kind:compKind(monaco,s.kind), detail:s.detail,
-            insertText:s.name, range });
+        const items = [];
+        // In-file symbol completions from aowllsp when available; otherwise from the
+        // lsp.js parse index. The static stdlib/builtin/keyword lists are appended in
+        // both cases so completion never regresses.
+        const alItems = alCompletionItems(monaco, model, range);
+        if(alItems){
+          for(const it of alItems) items.push(it);
+        }else{
+          const seen = new Set();
+          for(const s of lsp.index.symbols){
+            if(seen.has(s.name+"#"+s.kind)) continue; seen.add(s.name+"#"+s.kind);
+            items.push({ label:s.name, kind:compKind(monaco,s.kind), detail:s.detail,
+              insertText:s.name, range });
+          }
         }
         for(const s of STDLIB)
           items.push({ label:s.label, kind:monaco.languages.CompletionItemKind.Function,
@@ -688,6 +885,8 @@
     // --- find all references + highlight occurrences ---
     reg("registerReferenceProvider", "references", {
       provideReferences(model, position){
+        const al = alReferences(monaco, model, position);   // aowllsp-backed (in-file); null → fall back
+        if(al) return al;
         const w = model.getWordAtPosition(position); if(!w) return null;
         if(KEYWORDS.indexOf(w.word) >= 0) return null;
         return allOccurrences(model.getValue(), w.word).map(r => ({ uri:model.uri, range:r }));

@@ -39,6 +39,10 @@
     "nifjs.js":     "nifi-b-nifjs",
     "aowlts.js":    "nifi-b-aowlts",
     "aowlpy.js":    "nifi-b-aowlpy",
+    "aowljs-export.js":"nifi-b-aowljs",   // idiomatic JavaScript exporter (exporters.js)
+    "aowlc.js":     "nifi-b-aowlc",       // C exporter, ~6 MB (exporters.js)
+    "aowllens.js":  "nifi-b-aowllens",    // NIF query engine for the in-process LSP (lsp.js)
+    "aowllsp.js":   "nifi-b-aowllsp",     // the in-process language server (lsp.js)
     "aowlsem.js":   "nifi-b-aowlsem",     // experimental sem checker (worker reads it)
     "aowlsuggest.js":"nifi-b-aowlsuggest" // quick-fix engine (main thread, via suggest.js)
   };
@@ -92,6 +96,8 @@
         '"nifi.js":t("nifi-b-nifi"),"nifi_vm.js":t("nifi-b-nifi_vm"),' +
         '"nifi_run.js":t("nifi-b-nifi_run"),"nifjs.js":t("nifi-b-nifjs"),' +
         '"aowlts.js":t("nifi-b-aowlts"),"aowlpy.js":t("nifi-b-aowlpy"),' +
+        '"aowljs-export.js":t("nifi-b-aowljs"),"aowlc.js":t("nifi-b-aowlc"),' +
+        '"aowllens.js":t("nifi-b-aowllens"),"aowllsp.js":t("nifi-b-aowllsp"),' +
         '"aowlsem.js":t("nifi-b-aowlsem"),"aowlsuggest.js":t("nifi-b-aowlsuggest")},' +
       'stdlibB64:t("nifi-b-stdlib")};})();</scr' + 'ipt>\n';
 

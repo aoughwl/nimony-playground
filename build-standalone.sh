@@ -23,7 +23,7 @@ const { assembleStandalone } = require(path.join(dir, "assemble.js"));
 
 const APP = ["examples.js","pipeline.js","engine.js","parser.js","sem.js","suggest.js",
              "editor.js","lsp.js","curlyconvert.js","exporters.js","assemble.js","offline.js"];
-const BUNDLES = ["worker.js","nifparser.js","nimsem.js","nifi.js","nifi_vm.js","nifi_run.js","nifjs.js","aowlts.js","aowlpy.js","aowlsem.js","aowlsuggest.js"];
+const BUNDLES = ["worker.js","nifparser.js","nimsem.js","nifi.js","nifi_vm.js","nifi_run.js","nifjs.js","aowlts.js","aowlpy.js","aowljs-export.js","aowlc.js","aowllens.js","aowllsp.js","aowlsem.js","aowlsuggest.js"];
 
 const rd = f => fs.readFileSync(path.join(dir, f), "utf8");
 // Resolve an asset that may live in ../assets (pages repo) or ./assets (flat

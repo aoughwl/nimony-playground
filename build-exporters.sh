@@ -37,6 +37,18 @@ patch_aowlts_src(){
   grep -q "else: 0'i64" "$dst/emitts.nim" || { echo "FATAL: aowlts bits:32 patch did not apply (emitts.nim changed upstream?)"; return 1; }
 }
 
+# aowljs's emitjs.nim has the SAME one `--bits:32`-only type error as aowlts:
+# `let width = if d.kind == IntLit: pool.integers[d.intId] else: 0` unifies an
+# int64 (pool accessor) with an int32 literal, rejected when `int` is 32-bit. We
+# must NOT edit the aowljs repo, so we copy its `src/` to a temp dir and annotate
+# that one literal `0` -> `0'i64`. Upstream untouched; shim lives only here.
+patch_aowljs_src(){
+  local dst="$1"
+  rm -rf "$dst"; cp -r /home/savant/aifjs/src "$dst"
+  sed -i "s/let width = if d.kind == IntLit: pool.integers\[d.intId\] else: 0\$/let width = if d.kind == IntLit: pool.integers[d.intId] else: 0'i64/" "$dst/emitjs.nim"
+  grep -q "else: 0'i64" "$dst/emitjs.nim" || { echo "FATAL: aowljs bits:32 patch did not apply (emitjs.nim changed upstream?)"; return 1; }
+}
+
 # build_one <entry.nim> <emitter-src-dir> <out-bundle.js>
 build_one(){
   local entry="$1" emitsrc="$2" bundle="$3"
@@ -80,6 +92,10 @@ build_one(){
 ATS_SRC="$(mktemp -d)/src"; patch_aowlts_src "$ATS_SRC" || exit 1
 build_one "$HERE/exporters/aowlts_web.nim" "$ATS_SRC" "$HERE/aowlts.js"
 build_one "$HERE/exporters/aowlpy_web.nim" /home/savant/aowlpy/src "$HERE/aowlpy.js"
+# aowljs (idiomatic JavaScript) — src dir keeps the pre-rename name aifjs/src;
+# emitModuleBody is byte-identical to `bin/aowljs`. Needs the same bits:32 shim.
+AJS_SRC="$(mktemp -d)/src"; patch_aowljs_src "$AJS_SRC" || exit 1
+build_one "$HERE/exporters/aowljs_web.nim" "$AJS_SRC" "$HERE/aowljs.js"
 
 # refresh the offline single-file build so it embeds the new bundles.
 if [ -x "$HERE/build-standalone.sh" ]; then
