@@ -726,7 +726,7 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
   //      selected stage persists; default Source. `edit` shows the live Monaco
   //      editor (relayout on reveal); the NIF rungs share the .stg body below. ----
   const STAGE_INFO = {
-    edit: { label:"source", aif:()=> (window.AowliOpts && window.AowliOpts.curly) ? ".aowl" : ".nim" },
+    edit: { label:"source", aif:()=> ".aowl" },
     pnif: { label:"parsed", aif:()=>".p.aif" },
     snif: { label:"typed",  aif:()=>".s.aif" },
     rnif: { label:"run rung", aif:()=>".run.aif" },
@@ -1477,8 +1477,17 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
   window.__nifiEngineReady=(ok,detail)=>{ st.engine = ok?"ready":"unavailable"; paintStatus(); if(!ok&&detail) print('<span class="err">'+esc(detail)+'</span>'); };
   window.__nifiLspStatus=(state)=>{ st.lspOn=(state==="live"); paintStatus(); };
   window.__nifiIndexChanged=(n)=>{ st.lspCount=n|0; if(st.lspOn) paintStatus(); renderOutline(); };
-  window.__nifiParserReady=(ok)=>{ if(ok) runParse(); };
-  window.__nifiSemReady=(ok)=>{ if(ok) runSemCheck(); };
+  // Parser and semchecker bundles boot independently and in either order. A full
+  // re-check (parse + semcheck) must run once BOTH are ready — otherwise if sem
+  // finishes first, its runSemCheck bails (parser not ready) and the later
+  // parser-ready only re-parses, leaving the Typed (.s.aif) view blank until the
+  // first edit. So both handlers run a guarded parse+semcheck.
+  function recheckAll(){
+    if(window.AowliParser && window.AowliParser.ready) runParse();
+    runSemCheck(); // self-guards on both parser + sem readiness
+  }
+  window.__nifiParserReady=(ok)=>{ if(ok) recheckAll(); };
+  window.__nifiSemReady=(ok)=>{ if(ok) recheckAll(); };
 
   // ---- shareable link: the code travels in the URL hash (static host) ----
   function encodeShare(src){
