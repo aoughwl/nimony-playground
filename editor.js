@@ -196,7 +196,16 @@
             // the playground supplies its OWN unified context menu (see index.html)
             // so the look matches the rest of the site — disable Monaco's built-in one.
             contextmenu:false,
+            // wrap long lines on phones so code isn't cut off the right edge
+            wordWrap: (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) ? "on" : "off",
           });
+          // keep word-wrap in sync with viewport width (wrap on phones only)
+          try{
+            const mq = window.matchMedia("(max-width: 600px)");
+            const applyWrap = () => { if(editor) editor.updateOptions({ wordWrap: mq.matches ? "on" : "off" }); };
+            if(mq.addEventListener) mq.addEventListener("change", applyWrap);
+            else if(mq.addListener) mq.addListener(applyWrap);
+          }catch(_){}
           editor.onDidChangeModelContent(scheduleImportDecos);   // keep import underlines fresh
           computeImportDecos();
           wireZoom();

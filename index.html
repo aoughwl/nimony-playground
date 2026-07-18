@@ -405,6 +405,14 @@
              border-top:1px solid var(--border)}
     #semSel,#engineSel{flex:1 1 auto;min-width:0}
     .actions button.run{flex:1 1 auto;justify-content:center;display:flex;align-items:center}
+    /* segmented control (Source·Parsed·Typed·Run and the Export targets): let the
+       whole bar wrap and drop the .aif/meta line onto its OWN row instead of
+       squishing it beside the segments and truncating it. */
+    .exportbar{flex-wrap:wrap;gap:6px 8px}
+    .exportbar .exspacer{display:none}
+    .exportbar .exseg{order:1;flex-wrap:wrap}
+    .exportbar .exmeta{order:9;flex:1 1 100%;margin-left:0;max-width:none;
+                       white-space:normal;overflow:visible}
   }
   /* when the SOURCE PANE (not the viewport) is narrow — whether on a phone or
      because the split gutter shrank the editor — keep the tab bar on ONE line and
