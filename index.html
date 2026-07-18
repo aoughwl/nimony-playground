@@ -396,23 +396,25 @@
     .pane .label{padding:7px 12px}
     footer{padding:8px 12px;font-size:11px}
     footer > span:not(.badge):not(#perf){display:none}
-    /* toolbar can't fit one row on a phone (two dropdowns + buttons + run) —
-       let the whole header wrap: brand on top, the action controls flow onto
-       their own full-width row(s) below instead of overflowing off-screen. */
+    /* toolbar can't fit one row on a phone — let the header wrap the controls to a
+       second row, but keep every control its NATURAL size: square icon buttons, a
+       normal-width Run (not stretched full-width), no extra separator bar. */
     header{flex-wrap:wrap;align-items:center}
     .brand{flex:1 1 auto}
-    .actions{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-start;
-             border-top:1px solid var(--border)}
-    #semSel,#engineSel{flex:1 1 auto;min-width:0}
-    .actions button.run{flex:1 1 auto;justify-content:center;display:flex;align-items:center}
-    /* segmented control (Source·Parsed·Typed·Run and the Export targets): let the
-       whole bar wrap and drop the .aif/meta line onto its OWN row instead of
-       squishing it beside the segments and truncating it. */
+    .actions{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-start;align-items:center;
+             gap:0;padding:2px 6px}
+    .actions > *{flex:0 0 auto;height:38px}                         /* natural width, uniform height */
+    .actions button:not(.run){width:38px;padding:0;justify-content:center;border-left:0}  /* square icons */
+    #semSel,#engineSel{min-width:0;padding:0 8px}
+    .actions button.run{padding:0 18px;border-left:0}               /* normal size, own natural width */
+    /* segmented control (Source·Parsed·Typed·Run and the Export targets): wrap and
+       drop the .aif/meta line onto its OWN row instead of truncating it. */
     .exportbar{flex-wrap:wrap;gap:6px 8px}
     .exportbar .exspacer{display:none}
     .exportbar .exseg{order:1;flex-wrap:wrap}
     .exportbar .exmeta{order:9;flex:1 1 100%;margin-left:0;max-width:none;
                        white-space:normal;overflow:visible}
+    #exCopy,#exDl{display:none}                                     /* declutter — remove Copy/Download */
   }
   /* when the SOURCE PANE (not the viewport) is narrow — whether on a phone or
      because the split gutter shrank the editor — keep the tab bar on ONE line and
@@ -495,11 +497,11 @@
       <div class="sview" id="sviewExport">
         <div class="exportbar">
           <div class="tabs exseg" id="exportTargets">
-            <button class="active" data-exp="js"  data-tip="Idiomatic JavaScript via aowljs (fast Number path)">JavaScript</button>
+            <button class="active" data-exp="js"  data-tip="Idiomatic JavaScript via aowljs (fast Number path)">JS</button>
             <button data-exp="jsn" data-tip="Faithful JavaScript via aowljs — 64-bit ints become BigInt (exact, slower)">JS native</button>
-            <button data-exp="ts"  data-tip="Idiomatic TypeScript via aowlts">TypeScript</button>
+            <button data-exp="ts"  data-tip="Idiomatic TypeScript via aowlts">TS</button>
             <button data-exp="tsn" data-tip="Faithful TypeScript via aowlts — 64-bit ints become BigInt (exact, slower)">TS native</button>
-            <button data-exp="py"  data-tip="Idiomatic Python 3 via aowlpy">Python</button>
+            <button data-exp="py"  data-tip="Idiomatic Python 3 via aowlpy">Py</button>
             <button data-exp="c"   data-tip="C via aowlc — .s.nif → aowlhexer → C (loads a 6 MB bundle on first use)">C</button>
           </div>
           <span id="exMeta" class="exmeta"></span>
