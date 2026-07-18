@@ -55,7 +55,13 @@ let semMain = null, aowliMain = null, aowliVmMain = null, stdlibBlob = null, nsC
 // `new Function` per check (exactly like the main-thread parser). Best-effort:
 // null if the bundle isn't in this build, in which case the aowl path degrades to
 // a clean "unavailable" diagnostic rather than throwing.
-let asJsText = null;
+let asJsText = null, asJsPromise = null;
+// aowlsem (experimental) loads on demand — first "aowl" semantics check only.
+function ensureAowlsem(){
+  if(asJsText) return Promise.resolve(asJsText);
+  if(!asJsPromise) asJsPromise = loadText("aowlsem.js").catch(()=>null).then(t=>(asJsText=t, t));
+  return asJsPromise;
+}
 // The run-rung bundle (webmain_run.nim): the tree-walker with the run emitter ON,
 // which also parks the serialized execution on globalThis.__aowli_runnif. It's an
 // EXTRA ~1.7 MB, only needed when the user opens the "Run" NIF tab, so we fetch and
@@ -125,14 +131,15 @@ async function boot(){
   // serialized behind the ~1 s warm-sem step below (that step, not the fetches,
   // is what makes "engine ready" take a moment — it type-checks the whole stdlib
   // closure once so every later compile is ~15 ms).
-  const [semJs, aowliJs, aowliVmJs, asset, njsText, asJs] = await Promise.all([
+  const [semJs, aowliJs, aowliVmJs, asset, njsText] = await Promise.all([
     loadText("nimsem.js"), loadText("aowli.js"), loadText("aowli_vm.js"), loadStdlibBytes(),
-    loadText("nifjs.js").catch(()=>null),        // best-effort; fast path falls back if absent
-    loadText("aowlsem.js").catch(()=>null)       // best-effort; aowl sem path stays disabled if absent
+    loadText("nifjs.js").catch(()=>null)         // best-effort; fast path falls back if absent
   ]);
+  // NOTE: aowlsem.js (2.65 MB, experimental) is deliberately NOT fetched here — it
+  // loads lazily on the first "aowl" semantics check (ensureAowlsem), so the
+  // default nim boot doesn't pay for a bundle most sessions never touch.
   stdlibBlob = bytesToLatin1(asset);
   semJsText = semJs;
-  asJsText  = asJs;                              // the experimental aowlsem checker (may be null)
   // aowli: compile once; each run gets a fresh scope (fresh linear memory) — cheap
   // (~5 ms of init), and a clean interpreter state per run is what we want.
   aowliMain   = new Function(aowliJs   + "\nmain(0, []);");
@@ -275,8 +282,9 @@ function semCompileAowl(pnif){
 
 // Route the semcheck stage to the selected engine: "aowl" -> aowlsem (experimental),
 // anything else -> nimsem (the default). Both return { snif, diags, cached }.
-function runSem(pnif, semEngine){
-  return semEngine === "aowl" ? semCompileAowl(pnif) : semCompile(pnif);
+async function runSem(pnif, semEngine){
+  if(semEngine === "aowl"){ await ensureAowlsem(); return semCompileAowl(pnif); }
+  return semCompile(pnif);
 }
 
 // --- aowli: run a typed .s.nif -----------------------------------------------
@@ -374,7 +382,7 @@ function runByEngine(snif, stdin, engine){
 //     so normal runs stay on the VM; this only fires when the "Run" NIF tab is open.
 async function handleRunRung(msg, id){
   try{
-    const { snif, diags } = runSem(msg.pnif, msg.semEngine);
+    const { snif, diags } = await runSem(msg.pnif, msg.semEngine);
     if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", runnif:"", diags }); return; }
     await ensureRunBundle();
     resetAowliGlobals(snif, msg.stdin);
@@ -408,9 +416,10 @@ self.onmessage = (ev) => {
   try{
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
     if(msg.type === "sem"){
-      // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental).
-      const { snif, diags, cached } = runSem(msg.pnif, msg.semEngine);
-      self.postMessage({ id, ok:true, snif, diags, cached });
+      // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental, lazy).
+      runSem(msg.pnif, msg.semEngine).then(({ snif, diags, cached })=>{
+        self.postMessage({ id, ok:true, snif, diags, cached });
+      }).catch(e=> self.postMessage({ id, ok:false, error:String(e && e.message || e) }));
       return;
     }
     if(msg.type === "run" || msg.type === "fastrun"){
@@ -419,11 +428,12 @@ self.onmessage = (ev) => {
       // semEngine picks which checker produces the .s.nif that aowli then runs;
       // if aowlsem couldn't check it (empty snif), the ranSem path below reports
       // its diagnostics instead of trying to run nothing.
-      const { snif, diags } = runSem(msg.pnif, msg.semEngine);
-      if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
-      const res = runByEngine(snif, msg.stdin, engine);
-      res.diags = diags;
-      self.postMessage(Object.assign({ id, ok:true }, res));
+      runSem(msg.pnif, msg.semEngine).then(({ snif, diags })=>{
+        if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
+        const res = runByEngine(snif, msg.stdin, engine);
+        res.diags = diags;
+        self.postMessage(Object.assign({ id, ok:true }, res));
+      }).catch(e=> self.postMessage({ id, ok:false, error:String(e && e.message || e) }));
       return;
     }
     self.postMessage({ id, ok:false, message:"unknown request: "+msg.type });
