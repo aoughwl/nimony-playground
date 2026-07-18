@@ -3,7 +3,7 @@
 //
 // aowlts and aowlpy are nimony programs (thin emitters over the shared aowlhl
 // HL-IR layer). They're compiled to browser JavaScript by the SAME nimony-web
-// nim_js backend that produces nifparser.js / nimsem.js / nifi.js — see
+// nim_js backend that produces nifparser.js / nimsem.js / aowli.js — see
 // build-exporters.sh and exporters/{aowlts,aowlpy}_web.nim. Each bundle takes the
 // sem'd `.s.nif` the playground already has (from nimsem in the worker) on a
 // global and returns the emitted source text on another:
@@ -123,5 +123,5 @@
     preload(){ tsBundle.load().catch(()=>{}); pyBundle.load().catch(()=>{}); jsBundle.load().catch(()=>{}); }
   };
 
-  window.NifiExport = exporters;
+  window.AowliExport = exporters;
 })();

@@ -1,6 +1,6 @@
 // worker.js — the off-main-thread half of the playground pipeline.
 //
-// The two HEAVY stages live here: nimsem (the 8.9 MB semantic checker) and nifi
+// The two HEAVY stages live here: nimsem (the 8.9 MB semantic checker) and aowli
 // (the interpreter). Both are driven by an already-parsed `.p.nif` handed in from
 // the main thread (nifparser stays on the main thread — it's ~4 ms and feeds the
 // synchronous Monaco/LSP index). Moving these two here is what keeps the editor
@@ -18,9 +18,9 @@
 // process.exit) comes back as a clean message instead of killing the worker.
 
 // --- Node-globals shim (mirrors index.html's) --------------------------------
-// The nifi/nimsem bundles were emitted for a Node-ish host and reach for
+// The aowli/nimsem bundles were emitted for a Node-ish host and reach for
 // `process`/`Buffer`/`global` on their libc-stdio and exit paths. The happy
-// path (echo) uses the __nifi_ capture natives; stdlib code that writes via
+// path (echo) uses the __aowli_ capture natives; stdlib code that writes via
 // fwrite hits process.stdout instead. In a bare worker those are undefined.
 (function(){
   var g = self;
@@ -35,21 +35,21 @@
   if(typeof g.process === "undefined")
     g.process = {
       platform:"browser", argv:[], env:{}, cwd:function(){ return "/"; },
-      stdout:{ write:function(s){ g.__nifi_out=(g.__nifi_out||"")+toStr(s); return true; } },
-      stderr:{ write:function(s){ g.__nifi_err=(g.__nifi_err||"")+toStr(s); return true; } },
+      stdout:{ write:function(s){ g.__aowli_out=(g.__aowli_out||"")+toStr(s); return true; } },
+      stderr:{ write:function(s){ g.__aowli_err=(g.__aowli_err||"")+toStr(s); return true; } },
       exit:function(code){ var e=new Error("process.exit("+(code||0)+")"); e.__isExit=true; throw e; }
     };
 })();
 
 // --- load + compile-once the bundles -----------------------------------------
-// nifiMain  = tree-walker (interp.nim): lazy, runs any self-contained .s.nif.
-// nifiVmMain= bytecode VM (compiler.nim + vm.nim): 1.7-2.9x faster on compute,
+// aowliMain  = tree-walker (interp.nim): lazy, runs any self-contained .s.nif.
+// aowliVmMain= bytecode VM (compiler.nim + vm.nim): 1.7-2.9x faster on compute,
 //   but its compiler resolves some symbols eagerly (firstParamContainer ->
 //   tryLoadSym), which forces an on-demand module load the self-contained
 //   browser host can't satisfy (seq/Table container ops -> vfs open fails).
 //   So the VM is the FAST PATH and the tree-walker is the always-correct
 //   fallback (see runSnif).
-let semMain = null, nifiMain = null, nifiVmMain = null, stdlibBlob = null, nsCheckFn = null, semJsText = null;
+let semMain = null, aowliMain = null, aowliVmMain = null, stdlibBlob = null, nsCheckFn = null, semJsText = null;
 // aowlsem (the experimental AOWL semantic checker) bundle text. Unlike nimsem it
 // has NO warm-closure model, so we keep only the source and evaluate a fresh
 // `new Function` per check (exactly like the main-thread parser). Best-effort:
@@ -57,16 +57,16 @@ let semMain = null, nifiMain = null, nifiVmMain = null, stdlibBlob = null, nsChe
 // a clean "unavailable" diagnostic rather than throwing.
 let asJsText = null;
 // The run-rung bundle (webmain_run.nim): the tree-walker with the run emitter ON,
-// which also parks the serialized execution on globalThis.__nifi_runnif. It's an
+// which also parks the serialized execution on globalThis.__aowli_runnif. It's an
 // EXTRA ~1.7 MB, only needed when the user opens the "Run" NIF tab, so we fetch and
 // compile it lazily on first use rather than at boot.
-let nifiRunMain = null, nifiRunPromise = null;
+let aowliRunMain = null, aowliRunPromise = null;
 function ensureRunBundle(){
-  if(nifiRunMain) return Promise.resolve();
-  if(!nifiRunPromise)
-    nifiRunPromise = loadText("nifi_run.js")
-      .then(txt=>{ nifiRunMain = new Function(txt + "\nmain(0, []);"); });
-  return nifiRunPromise;
+  if(aowliRunMain) return Promise.resolve();
+  if(!aowliRunPromise)
+    aowliRunPromise = loadText("aowli_run.js")
+      .then(txt=>{ aowliRunMain = new Function(txt + "\nmain(0, []);"); });
+  return aowliRunPromise;
 }
 
 function bytesToLatin1(buf){
@@ -125,25 +125,25 @@ async function boot(){
   // serialized behind the ~1 s warm-sem step below (that step, not the fetches,
   // is what makes "engine ready" take a moment — it type-checks the whole stdlib
   // closure once so every later compile is ~15 ms).
-  const [semJs, nifiJs, nifiVmJs, asset, njsText, asJs] = await Promise.all([
-    loadText("nimsem.js"), loadText("nifi.js"), loadText("nifi_vm.js"), loadStdlibBytes(),
+  const [semJs, aowliJs, aowliVmJs, asset, njsText, asJs] = await Promise.all([
+    loadText("nimsem.js"), loadText("aowli.js"), loadText("aowli_vm.js"), loadStdlibBytes(),
     loadText("nifjs.js").catch(()=>null),        // best-effort; fast path falls back if absent
     loadText("aowlsem.js").catch(()=>null)       // best-effort; aowl sem path stays disabled if absent
   ]);
   stdlibBlob = bytesToLatin1(asset);
   semJsText = semJs;
   asJsText  = asJs;                              // the experimental aowlsem checker (may be null)
-  // nifi: compile once; each run gets a fresh scope (fresh linear memory) — cheap
+  // aowli: compile once; each run gets a fresh scope (fresh linear memory) — cheap
   // (~5 ms of init), and a clean interpreter state per run is what we want.
-  nifiMain   = new Function(nifiJs   + "\nmain(0, []);");
-  nifiVmMain = new Function(nifiVmJs + "\nmain(0, []);");
+  aowliMain   = new Function(aowliJs   + "\nmain(0, []);");
+  aowliVmMain = new Function(aowliVmJs + "\nmain(0, []);");
   // nifjs — the .s.nif -> native-JS transpiler (the Native JS engine). Small
   // hand-written JS; load it into this worker scope so it runs here (terminable
   // via Stop). Cheap to compile, so do it before the heavy warm-sem step.
   try{
     if(njsText){
-      (new Function(njsText + "\n; globalThis.__NifiJs = (typeof NifiJs!=='undefined'?NifiJs:null);"))();
-      nifjsApi = globalThis.__NifiJs || null;
+      (new Function(njsText + "\n; globalThis.__AowliJs = (typeof AowliJs!=='undefined'?AowliJs:null);"))();
+      nifjsApi = globalThis.__AowliJs || null;
     }
   }catch(_){ nifjsApi = null; }
   buildWarmSem();
@@ -180,7 +180,7 @@ function semFresh(pnif, allowRetry){
   globalThis.__ns_assets = stdlibBlob;
   globalThis.__ns_out    = "";
   globalThis.__ns_diag   = "";
-  globalThis.__nifi_out  = "";   // nimsem's own stdout (assert/crash text) lands here via the process shim
+  globalThis.__aowli_out  = "";   // nimsem's own stdout (assert/crash text) lands here via the process shim
   try{
     if(nsCheckFn) nsCheckFn();   // warm instance: reuse the loaded stdlib closure
     else semMain();              // fallback: fresh scope per compile
@@ -202,7 +202,7 @@ function semFresh(pnif, allowRetry){
     // feature. Tell them apart from whatever nimsem printed, and use line:0 so we
     // do NOT pin a red marker to line 1 (the import) — we don't know the real
     // line (refreshMarkers lists line:0 in Problems without an editor squiggle).
-    const crash = String(globalThis.__nifi_out || "").trim();
+    const crash = String(globalThis.__aowli_out || "").trim();
     const internal = /assert|fatal|unreachable|internal|illformed|segfault|sigsegv/i.test(crash);
     const message = internal
       ? "the checker couldn't process this program — this is usually a mistake in your most recent edit (for example a proc/if/for/type header missing its ':' or '='). Undo that edit and your errors come back."
@@ -279,27 +279,25 @@ function runSem(pnif, semEngine){
   return semEngine === "aowl" ? semCompileAowl(pnif) : semCompile(pnif);
 }
 
-// --- nifi: run a typed .s.nif ------------------------------------------------
-// Both engines read the same __nifi_* input globals and park their result on the
-// same output globals; a run is a fresh scope, so state never carries over.
-// The tree-walk + run-rung bundles were renamed nifi -> aowli and now speak
-// __aowli_*; the VM bundle still speaks __nifi_*. Feed BOTH namings and read
-// back whichever the loaded bundle wrote, so either vintage runs correctly.
-function resetNifiGlobals(snif, stdin){
-  globalThis.__nifi_in  = globalThis.__aowli_in  = stdin || "";
-  globalThis.__nifi_src = globalThis.__aowli_src = snif;
-  globalThis.__nifi_out = globalThis.__aowli_out = "";
-  globalThis.__nifi_err = globalThis.__aowli_err = "";
-  globalThis.__nifi_exit = globalThis.__aowli_exit = 0;
-  globalThis.__nifi_runnif = globalThis.__aowli_runnif = "";  // run-rung parks the serialized run here
+// --- aowli: run a typed .s.nif -----------------------------------------------
+// Both engines read the same __aowli_* input globals and park their result on
+// the same output globals; a run is a fresh scope, so state never carries over.
+// All three aowli bundles (tree-walker, VM, run-rung) speak __aowli_*.
+function resetAowliGlobals(snif, stdin){
+  globalThis.__aowli_in  = stdin || "";
+  globalThis.__aowli_src = snif;
+  globalThis.__aowli_out = "";
+  globalThis.__aowli_err = "";
+  globalThis.__aowli_exit = 0;
+  globalThis.__aowli_runnif = "";  // run-rung parks the serialized run here
 }
-function collectNifi(engine){
-  return { stdout: globalThis.__aowli_out || globalThis.__nifi_out || "",
-           stderr: globalThis.__aowli_err || globalThis.__nifi_err || "",
-           exitCode: (globalThis.__aowli_exit | 0) || (globalThis.__nifi_exit | 0),
+function collectAowli(engine){
+  return { stdout: globalThis.__aowli_out || "",
+           stderr: globalThis.__aowli_err || "",
+           exitCode: (globalThis.__aowli_exit | 0),
            engine };
 }
-// Out-of-memory: the nifi runtime is a bump allocator over a FIXED linear-memory
+// Out-of-memory: the aowli runtime is a bump allocator over a FIXED linear-memory
 // ArrayBuffer with no GC, so a program that allocates too much in total (big
 // loops building strings/collections, huge output) overruns it and the DataView
 // accessors throw a RangeError. Both engines share this memory model, so a retry
@@ -314,18 +312,18 @@ function runSnif(snif, stdin, forceTree){
   // browser host (on-demand symbol load -> vfs open throws, or a quit surfaces
   // via the exit shim), fall back to the always-correct tree-walker. Where the
   // VM succeeds its output is identical to the tree-walker's.
-  resetNifiGlobals(snif, stdin);
-  if(forceTree){ nifiMain(); return collectNifi("tree"); }
+  resetAowliGlobals(snif, stdin);
+  if(forceTree){ aowliMain(); return collectAowli("tree"); }
   try{
-    nifiVmMain();
-    return collectNifi("vm");
+    aowliVmMain();
+    return collectAowli("vm");
   }catch(e){
     // Out of memory is a genuine runtime limit, not a "the VM can't compile this"
     // signal — the tree-walker shares the same fixed heap and would just OOM too.
     if(isMemoryError(e)){ e.__oom = true; throw e; }
-    resetNifiGlobals(snif, stdin);
-    nifiMain();
-    return collectNifi("tree");
+    resetAowliGlobals(snif, stdin);
+    aowliMain();
+    return collectAowli("tree");
   }
 }
 
@@ -335,23 +333,23 @@ const OOM_TEXT = "out of memory: this program allocated more than the in-browser
   + "even if little is live at once. Try the Native-JS engine (no fixed heap), fewer "
   + "iterations, or less output.";
 
-// Run a semchecked program on a nifi engine (tree or vm) and return a result
+// Run a semchecked program on a aowli engine (tree or vm) and return a result
 // object, translating an exit()/OOM/crash into stdout+stderr+exitCode.
-function runNifiResult(snif, stdin, forceTree){
+function runAowliResult(snif, stdin, forceTree){
   try{
     return runSnif(snif, stdin, forceTree);
   }catch(e){
-    const base = globalThis.__nifi_err || "";
+    const base = globalThis.__aowli_err || "";
     const eng = forceTree ? "tree" : "vm";
     if(e && e.__isExit)
-      return { stdout: globalThis.__nifi_out||"", stderr: base, exitCode: parseInt(String(e.message).replace(/\D/g,""),10)||0, engine: eng };
+      return { stdout: globalThis.__aowli_out||"", stderr: base, exitCode: parseInt(String(e.message).replace(/\D/g,""),10)||0, engine: eng };
     if(e && (e.__oom || isMemoryError(e)))
-      return { stdout: globalThis.__nifi_out||"", oom:true, exitCode:137, stderr: base + OOM_TEXT, engine: eng };
-    return { stdout: globalThis.__nifi_out||"", exitCode:1, stderr: base + "runtime error: " + (e && e.message||e), engine: eng };
+      return { stdout: globalThis.__aowli_out||"", oom:true, exitCode:137, stderr: base + OOM_TEXT, engine: eng };
+    return { stdout: globalThis.__aowli_out||"", exitCode:1, stderr: base + "runtime error: " + (e && e.message||e), engine: eng };
   }
 }
 
-// A short human reason for why a nifjs Fast run fell back to nifi.
+// A short human reason for why a nifjs Fast run fell back to aowli.
 function nifjsFallbackReason(e){
   const m = String(e && e.message || e);
   return /nifjs: unsupported/.test(m) ? m.replace(/^nifjs:\s*/, "").trim() : "fast-path error";
@@ -364,11 +362,11 @@ function runByEngine(snif, stdin, engine){
   if(engine === "nifjs"){
     if(nifjsApi){
       try{ return { stdout: nifjsApi.run(snif), stderr:"", exitCode:0, engine:"nifjs" }; }
-      catch(e){ const r = runNifiResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = nifjsFallbackReason(e); return r; }
+      catch(e){ const r = runAowliResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = nifjsFallbackReason(e); return r; }
     }
-    const r = runNifiResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = "nifjs unavailable"; return r;
+    const r = runAowliResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = "nifjs unavailable"; return r;
   }
-  return runNifiResult(snif, stdin, engine === "tree");
+  return runAowliResult(snif, stdin, engine === "tree");
 }
 
 // --- run rung: semcheck (cached) + run the TREE-WALKER with the emitter on, and
@@ -379,15 +377,15 @@ async function handleRunRung(msg, id){
     const { snif, diags } = runSem(msg.pnif, msg.semEngine);
     if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", runnif:"", diags }); return; }
     await ensureRunBundle();
-    resetNifiGlobals(snif, msg.stdin);
+    resetAowliGlobals(snif, msg.stdin);
     let exitCode = 0, err = "";
-    try{ nifiRunMain(); exitCode = globalThis.__nifi_exit | 0; }
+    try{ aowliRunMain(); exitCode = globalThis.__aowli_exit | 0; }
     catch(e){
       if(e && e.__isExit) exitCode = parseInt(String(e.message).replace(/\D/g,""),10) || 0;
       else err = "runtime error: " + (e && e.message || e);
     }
-    self.postMessage({ id, ok:true, snif, runnif: globalThis.__aowli_runnif || globalThis.__nifi_runnif || "",
-                       exitCode, stderr: (globalThis.__nifi_err||"") + err, diags });
+    self.postMessage({ id, ok:true, snif, runnif: globalThis.__aowli_runnif || "",
+                       exitCode, stderr: (globalThis.__aowli_err||"") + err, diags });
   }catch(e){
     self.postMessage({ id, ok:false, message: String(e && e.message || e) });
   }
@@ -418,7 +416,7 @@ self.onmessage = (ev) => {
     if(msg.type === "run" || msg.type === "fastrun"){
       // engine: "tree" | "vm" | "nifjs". ("fastrun" is a legacy alias for nifjs.)
       const engine = msg.engine || (msg.type === "fastrun" ? "nifjs" : "vm");
-      // semEngine picks which checker produces the .s.nif that nifi then runs;
+      // semEngine picks which checker produces the .s.nif that aowli then runs;
       // if aowlsem couldn't check it (empty snif), the ranSem path below reports
       // its diagnostics instead of trying to run nothing.
       const { snif, diags } = runSem(msg.pnif, msg.semEngine);

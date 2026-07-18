@@ -1,6 +1,6 @@
 // curlyconvert.js — source-to-source converter between nimony INDENT/colon style
 // and the experimental CURLY-BRACE block style accepted by nifparser's `--curly`
-// mode. Exposes `window.NifiCurly = { toCurly(src), toColon(src) }`.
+// mode. Exposes `window.AowliCurly = { toCurly(src), toColon(src) }`.
 //
 // WHAT CAN BECOME `{ … }` (verified against nifparser/src/parse_stmt.nim):
 // nifparser only recognises a `{` block body via `findColon`, which fires when
@@ -390,5 +390,5 @@
 
   var api = { toCurly: toCurly, toColon: toColon };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-  if (global) global.NifiCurly = api;
+  if (global) global.AowliCurly = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

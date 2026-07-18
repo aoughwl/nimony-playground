@@ -446,7 +446,7 @@
         <button id="stabEdit" class="active" data-sview="edit" data-tip="Your nimony source">Source</button>
         <button id="stabPnif" data-sview="pnif" data-tip="Parsed — the untyped .p.nif from nifparser">Parsed</button>
         <button id="stabSnif" data-sview="snif" data-tip="Typed — the .s.nif from nimsem (types &amp; symbols resolved)">Typed</button>
-        <button id="stabRnif" data-sview="rnif" data-tip="Run rung — the execution serialized as NIF (from nifi)">Run</button>
+        <button id="stabRnif" data-sview="rnif" data-tip="Run rung — the execution serialized as NIF (from aowli)">Run</button>
         <button id="stabExport" data-sview="export" data-tip="Export — idiomatic JavaScript / TypeScript / Python / C, transpiled in-browser">Export</button>
       </div>
       <div class="statusline" id="statusLine" data-tip="Engine · live diagnostics · in-browser code intelligence"><span class="sdot"></span><span id="statusText">engine loading…</span></div>
@@ -459,7 +459,7 @@
       </div>
       <div class="sview" id="sviewPnif"><pre id="pnif" class="nifview"><span class="sys">The parsed NIF (<code>.p.nif</code>) appears here live as you type — nifparser turns your source into nimony's untyped intermediate form.</span></pre></div>
       <div class="sview" id="sviewSnif"><pre id="snif" class="nifview"><span class="sys">The typed NIF (<code>.s.nif</code>) appears here after type-checking — nimsem resolves every symbol, overload and type on top of the parsed form.</span></pre></div>
-      <div class="sview" id="sviewRnif"><pre id="rnif" class="nifview"><span class="sys">Press Run to see the program's execution serialized as NIF — the <em>run rung</em>: source → parsed → typed → <strong>run</strong>, the bottom of nifi's content-addressed compilation tower.</span></pre></div>
+      <div class="sview" id="sviewRnif"><pre id="rnif" class="nifview"><span class="sys">Press Run to see the program's execution serialized as NIF — the <em>run rung</em>: source → parsed → typed → <strong>run</strong>, the bottom of aowli's content-addressed compilation tower.</span></pre></div>
       <div class="sview" id="sviewExport">
         <div class="exportbar">
           <div class="tabs exseg" id="exportTargets">
@@ -511,16 +511,16 @@
 
 <footer>
   <span class="badge">● 100% client-side</span>
-  <span class="ftxt"><a href="https://github.com/aoughwl/nifparser" target="_blank" rel="noopener"><code>nifparser</code></a> · <a href="https://github.com/nim-lang/nimony" target="_blank" rel="noopener"><code>nimsem</code></a> · <a href="https://github.com/aoughwl/nifi" target="_blank" rel="noopener"><code>nifi</code></a> → JS in this tab, no backend</span>
+  <span class="ftxt"><a href="https://github.com/aoughwl/nifparser" target="_blank" rel="noopener"><code>nifparser</code></a> · <a href="https://github.com/nim-lang/nimony" target="_blank" rel="noopener"><code>nimsem</code></a> · <a href="https://github.com/aoughwl/aowli" target="_blank" rel="noopener"><code>aowli</code></a> → JS in this tab, no backend</span>
   <div style="flex:1"></div>
   <span id="perf"></span>
 </footer>
 
 <script>
-// Node-globals shim. The nifi/nimsem JS bundles were produced for a Node-ish
+// Node-globals shim. The aowli/nimsem JS bundles were produced for a Node-ish
 // host and reference `process` and `Buffer` on their raw-stdio / error / exit
 // paths — e.g. `fwrite` does `_stream(f).write(Buffer.from(bytes))`. The happy
-// path (echo) uses the intercepted __nifi_ capture natives, so examples never
+// path (echo) uses the intercepted __aowli_ capture natives, so examples never
 // hit these; but stdlib code that writes via libc stdio does, and in a real
 // browser those refs throw "process is not defined" / "Buffer is not defined".
 (function(){
@@ -536,8 +536,8 @@
   if(typeof g.process === "undefined")
     g.process = {
       platform:"browser", argv:[], env:{}, cwd:function(){ return "/"; },
-      stdout:{ write:function(s){ g.__nifi_out=(g.__nifi_out||"")+toStr(s); return true; } },
-      stderr:{ write:function(s){ g.__nifi_err=(g.__nifi_err||"")+toStr(s); return true; } },
+      stdout:{ write:function(s){ g.__aowli_out=(g.__aowli_out||"")+toStr(s); return true; } },
+      stderr:{ write:function(s){ g.__aowli_err=(g.__aowli_err||"")+toStr(s); return true; } },
       exit:function(code){ var e=new Error("process.exit("+(code||0)+")"); e.__isExit=true; throw e; }
     };
 })();
@@ -546,8 +546,8 @@
 // selects the semantic checker ("nim" = nimsem, the default; "aowl" = aowlsem,
 // experimental) and is read by sem.js / engine.js the same decoupled way. Toggled
 // below.
-window.NifiOpts = window.NifiOpts || { curly:false };
-if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
+window.AowliOpts = window.AowliOpts || { curly:false };
+if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
 </script>
 <!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
      refresh (the big bundles are fetched separately and change rarely). -->
@@ -701,7 +701,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
       $("#stab"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
       $("#sview"+k[0].toUpperCase()+k.slice(1)).classList.toggle("active", k===v);
     });
-    if(v==="edit" && window.NifiEditor.relayout) window.NifiEditor.relayout();
+    if(v==="edit" && window.AowliEditor.relayout) window.AowliEditor.relayout();
     if(v==="rnif") ensureRunRung();
     if(v==="export"){ layoutExportEditor(); ensureExport(); }
   }
@@ -719,17 +719,17 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   // revisiting or a no-op edit doesn't re-transpile. `code` is kept for Copy/Download.
   const EXPORT_TARGETS = {
     js:  { lang:"javascript", ext:"program.js", meta:"idiomatic JavaScript · aowljs",
-           run:(s)=>window.NifiExport.toJavaScript(s, false) },
+           run:(s)=>window.AowliExport.toJavaScript(s, false) },
     jsn: { lang:"javascript", ext:"program.js", meta:"faithful JavaScript · aowljs (int64→BigInt)",
-           run:(s)=>window.NifiExport.toJavaScript(s, true) },
+           run:(s)=>window.AowliExport.toJavaScript(s, true) },
     ts:  { lang:"typescript", ext:"program.ts", meta:"idiomatic TypeScript · aowlts",
-           run:(s)=>window.NifiExport.toTypeScript(s, false) },
+           run:(s)=>window.AowliExport.toTypeScript(s, false) },
     tsn: { lang:"typescript", ext:"program.ts", meta:"faithful TypeScript · aowlts (int64→BigInt)",
-           run:(s)=>window.NifiExport.toTypeScript(s, true) },
+           run:(s)=>window.AowliExport.toTypeScript(s, true) },
     py:  { lang:"python",     ext:"program.py", meta:"idiomatic Python 3 · aowlpy",
-           run:(s)=>window.NifiExport.toPython(s) },
+           run:(s)=>window.AowliExport.toPython(s) },
     c:   { lang:"c",          ext:"program.c",  meta:"C · aowlc",
-           run:(s)=>window.NifiExport.toC(s) },
+           run:(s)=>window.AowliExport.toC(s) },
   };
   let curExport = "js";
   const exportMemo = {};   // target -> { key, code }
@@ -739,7 +739,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   // #exOut <pre> when Monaco isn't available — e.g. the textarea editor fallback).
   let exEditor = null, exModel = null;
   function ensureExportEditor(){
-    const monaco = window.NifiEditor.getMonaco && window.NifiEditor.getMonaco();
+    const monaco = window.AowliEditor.getMonaco && window.AowliEditor.getMonaco();
     const host = $("#exportEditor");
     if(!monaco || !host) return null;
     if(exEditor) return exEditor;
@@ -747,7 +747,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     exEditor = monaco.editor.create(host, {
       model: exModel, readOnly:true, minimap:{enabled:false}, automaticLayout:true,
       scrollBeyondLastLine:false, contextmenu:false, renderWhitespace:"none",
-      fontSize: (window.NifiEditor.getFontSize ? window.NifiEditor.getFontSize() : 13),
+      fontSize: (window.AowliEditor.getFontSize ? window.AowliEditor.getFontSize() : 13),
       fontFamily:'"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace',
     });
     return exEditor;
@@ -756,7 +756,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   // Show the emitted code in the Monaco viewer with `lang` highlighting; hide the
   // <pre>. Under the textarea fallback, show plain text in the <pre> instead.
   function showExportCode(code, lang){
-    const monaco = window.NifiEditor.getMonaco && window.NifiEditor.getMonaco();
+    const monaco = window.AowliEditor.getMonaco && window.AowliEditor.getMonaco();
     const ed = ensureExportEditor();
     if(ed && monaco){
       exOutEl.style.display = "none";
@@ -779,22 +779,22 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
 
   async function ensureExport(force){
     const target = curExport, spec = EXPORT_TARGETS[target], memo = exportMemo[target];
-    if(!window.NifiExport){ showExportMsg('<span class="err">exporter unavailable.</span>'); return; }
-    if(!(window.NifiParser && window.NifiParser.ready)){ showExportMsg('<span class="sys">parser still loading…</span>'); memo.key=null; return; }
-    if(!(window.NifiSem && window.NifiSem.ready)){ showExportMsg('<span class="sys">type-checker still loading…</span>'); memo.key=null; return; }
-    const src = window.NifiEditor.getValue();
+    if(!window.AowliExport){ showExportMsg('<span class="err">exporter unavailable.</span>'); return; }
+    if(!(window.AowliParser && window.AowliParser.ready)){ showExportMsg('<span class="sys">parser still loading…</span>'); memo.key=null; return; }
+    if(!(window.AowliSem && window.AowliSem.ready)){ showExportMsg('<span class="sys">type-checker still loading…</span>'); memo.key=null; return; }
+    const src = window.AowliEditor.getValue();
     const key = src;
     if(!force && memo.key===key){ showExportCode(memo.code, spec.lang); exMetaEl.textContent = spec.meta + " · " + memo.code.length + " bytes"; return; }
-    const bad = (window.NifiCore && window.NifiCore.checkImports) ? window.NifiCore.checkImports(src) : [];
+    const bad = (window.AowliCore && window.AowliCore.checkImports) ? window.AowliCore.checkImports(src) : [];
     if(bad.length){ showExportMsg('<span class="err">● unavailable import — '+esc(bad[0].message)+'</span>'); memo.key=null; exMetaEl.textContent=""; return; }
     let nif, sdiags;
-    try{ const r = window.NifiParser.parseFull(src, "in.nim"); nif=r.nif; sdiags=r.diags; }
+    try{ const r = window.AowliParser.parseFull(src, "in.nim"); nif=r.nif; sdiags=r.diags; }
     catch(e){ showExportMsg('<span class="err">parse error: '+esc(e&&e.message||e)+'</span>'); memo.key=null; exMetaEl.textContent=""; return; }
     if(sdiags && sdiags.length){ showExportMsg('<span class="err">● syntax error: '+esc(sdiags[0].message)+' (line '+sdiags[0].line+')</span>'); memo.key=null; exMetaEl.textContent=""; return; }
     showExportMsg('<span class="sys">exporting…</span>'); exMetaEl.textContent = "exporting…";
     try{
-      const { snif, diags } = await window.NifiSem.compile(nif);
-      if(window.NifiEditor.getValue() !== src || curExport !== target) return;   // buffer/target moved on
+      const { snif, diags } = await window.AowliSem.compile(nif);
+      if(window.AowliEditor.getValue() !== src || curExport !== target) return;   // buffer/target moved on
       if(!snif){
         const n = (diags||[]).length;
         showExportMsg(n
@@ -806,7 +806,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
       const t0 = performance.now();
       const code = await spec.run(snif);
       const ms = (performance.now()-t0).toFixed(0);
-      if(window.NifiEditor.getValue() !== src || curExport !== target) return;   // moved on again
+      if(window.AowliEditor.getValue() !== src || curExport !== target) return;   // moved on again
       memo.key=key; memo.code=code;
       showExportCode(code, spec.lang);
       exMetaEl.textContent = spec.meta + " · " + code.length + " bytes · " + ms + " ms";
@@ -847,7 +847,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     return { col:fallbackCol, endCol:fallbackCol+1 };
   }
   function refreshMarkers(){
-    const lines = window.NifiEditor.getValue().split("\n");
+    const lines = window.AowliEditor.getValue().split("\n");
     const marks = [], problems = [];
     for(const d of syntaxDiags){
       const c = (d.col|0)+1;
@@ -877,7 +877,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
       marks.push({ line:d.line, col:s.col, endCol:s.endCol, message:d.message, severity:d.severity||"error" });
       problems.push({ line:d.line, col:s.col, message:d.message, severity:d.severity||"error" });
     }
-    window.NifiEditor.setDiagnostics(marks);
+    window.AowliEditor.setDiagnostics(marks);
     setDiagBadge(problems);               // count from problems so a line:0 error still blocks Run
     showProblems(problems);
   }
@@ -897,7 +897,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     param:"param",local:"local",field:"field",enumField:"enum" };
   function renderOutline(){
     const listEl = $("#symList"); if(!listEl) return;
-    const items = (window.NifiLsp && window.NifiLsp.outline) ? window.NifiLsp.outline() : [];
+    const items = (window.AowliLsp && window.AowliLsp.outline) ? window.AowliLsp.outline() : [];
     if(!items.length){ listEl.innerHTML = '<div id="symEmpty">No symbols yet — declare a <code>proc</code>, <code>type</code>, or <code>var</code> and it shows up here.</div>'; return; }
     const row = (s,child)=>'<div class="sym'+(child?" child":"")+'" data-l="'+s.line+'" data-c="'+s.col+'">'+
       '<span class="k">'+esc(SYM_LABEL[s.kind]||s.kind)+'</span><span class="nm">'+esc(s.name)+'</span>'+
@@ -907,7 +907,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   }
   function jumpFromEl(el){
     const t = el.closest("[data-l]"); if(!t) return;
-    window.NifiEditor.revealPosition(+t.dataset.l, +t.dataset.c);
+    window.AowliEditor.revealPosition(+t.dataset.l, +t.dataset.c);
   }
   document.addEventListener("click", e=>{
     if(e.target.closest("#symList .sym") || e.target.closest("#out .prob")) jumpFromEl(e.target);
@@ -926,22 +926,22 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     semTimer=setTimeout(runSemCheck, 500);
   }
   function runParse(){
-    if(!window.NifiParser || !window.NifiParser.ready){
+    if(!window.AowliParser || !window.AowliParser.ready){
       pnifEl.innerHTML='<span class="sys">parser loading…</span>'; return;
     }
-    const src = window.NifiEditor.getValue();
+    const src = window.AowliEditor.getValue();
     const t0=performance.now();
     try{
-      const { nif, diags } = window.NifiParser.parseFull(src, "in.nim");
+      const { nif, diags } = window.AowliParser.parseFull(src, "in.nim");
       const ms=(performance.now()-t0).toFixed(1);
-      if(window.NifiLsp) window.NifiLsp.update(src, nif);
+      if(window.AowliLsp) window.AowliLsp.update(src, nif);
       syntaxDiags = diags || [];
       if(syntaxDiags.length) semDiags = [];
       // aowlsuggest quick-fixes over the parser's diagnostics — computed here on the
       // main thread (aowlsuggest is tiny, no worker) and stashed for the Monaco
       // code-action provider (see lsp.js). Robust: returns [] if unavailable/throws.
-      window.__nifiSuggestFixes = (window.NifiSuggest && window.NifiSuggest.ready)
-        ? window.NifiSuggest.compute(src, syntaxDiags) : [];
+      window.__nifiSuggestFixes = (window.AowliSuggest && window.AowliSuggest.ready)
+        ? window.AowliSuggest.compute(src, syntaxDiags) : [];
       refreshMarkers();
       // only surface a banner when there ARE syntax errors — a clean parse just
       // shows the NIF (no "no syntax errors" noise).
@@ -953,32 +953,32 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
         : '';
       pnifEl.innerHTML = banner + renderNif(nif) + "\n" +
         nifMeta('parsed in '+ms+' ms · '+nif.length+' bytes'+
-          (window.NifiOpts&&window.NifiOpts.curly?' · curly mode':''));
+          (window.AowliOpts&&window.AowliOpts.curly?' · curly mode':''));
     }catch(e){
       pnifEl.innerHTML='<span class="err">parse error: '+esc(e&&e.message||e)+'</span>';
     }
   }
   async function runSemCheck(){
     if(syntaxDiags.length){ semStatus(""); return; }
-    if(!window.NifiSem || !window.NifiSem.ready || !window.NifiParser || !window.NifiParser.ready) return;
+    if(!window.AowliSem || !window.AowliSem.ready || !window.AowliParser || !window.AowliParser.ready) return;
     try{
-      const src = window.NifiEditor.getValue();
-      const badImports = (window.NifiCore && window.NifiCore.checkImports) ? window.NifiCore.checkImports(src) : [];
+      const src = window.AowliEditor.getValue();
+      const badImports = (window.AowliCore && window.AowliCore.checkImports) ? window.AowliCore.checkImports(src) : [];
       if(badImports.length){ semDiags = badImports; refreshMarkers();
         semStatus('<span class="err">● unavailable import</span>'); return; }
-      const { nif } = window.NifiParser.parseFull(src, "in.nim");   // memo hit — runParse already parsed this buffer
+      const { nif } = window.AowliParser.parseFull(src, "in.nim");   // memo hit — runParse already parsed this buffer
       const t0=performance.now();
       semStatus('<span class="sys">● type-checking…</span>');
-      const { snif, diags, cached } = await window.NifiSem.compile(nif);   // runs in the worker
+      const { snif, diags, cached } = await window.AowliSem.compile(nif);   // runs in the worker
       const ms=(performance.now()-t0).toFixed(0);
       // The semcheck is async now: the buffer may have moved on (or picked up a
       // syntax error) while the worker was busy. Drop this result if so — a fresh
       // runSemCheck is already queued for the current text.
-      if(window.NifiEditor.getValue() !== src || syntaxDiags.length) return;
-      if(snif && window.NifiLsp) window.NifiLsp.enrich(snif);
+      if(window.AowliEditor.getValue() !== src || syntaxDiags.length) return;
+      if(snif && window.AowliLsp) window.AowliLsp.enrich(snif);
       // Feed the typed .s.nif to the aowllsp-backed language layer (feat: LSP).
       // It caches aowllens decls/index/calls per .s.nif; passing "" clears it.
-      if(window.NifiLsp && window.NifiLsp.setSnif) window.NifiLsp.setSnif(snif||"", src);
+      if(window.AowliLsp && window.AowliLsp.setSnif) window.AowliLsp.setSnif(snif||"", src);
       semDiags = diags || [];
       refreshMarkers();
       const nErr = semDiags.length;
@@ -1002,7 +1002,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   function semStatus(html){ const el=$("#semStatus"); if(el) el.innerHTML = html||""; }
 
   function loadDemo(){
-    window.NifiEditor.setValue(window.PLAYGROUND_DEMO || "");
+    window.AowliEditor.setValue(window.PLAYGROUND_DEMO || "");
     print('<span class="sys">Ready — edit freely and press Run. Your code is compiled and run in this tab.</span>');
     runParse();
     runSemCheck();
@@ -1023,8 +1023,8 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     else updateRunState();
   }
   async function run(){
-    if(running){ if(window.NifiPipe) window.NifiPipe.stop(); return; }  // Stop
-    if(!window.NifiEngine || !window.NifiEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
+    if(running){ if(window.AowliPipe) window.AowliPipe.stop(); return; }  // Stop
+    if(!window.AowliEngine || !window.AowliEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
     // refuse to run with errors on the board (the button is already blocked, but
     // the keyboard shortcut can still fire) — surface them instead.
     if(st.errCount>0){ ensureOutputVisible(); return; }
@@ -1039,7 +1039,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     setRunning(true);
     const t0=performance.now();
     try{
-      const res=await window.NifiEngine.run({ source: window.NifiEditor.getValue(), stdin: currentStdin(), engine: engineMode });
+      const res=await window.AowliEngine.run({ source: window.AowliEditor.getValue(), stdin: currentStdin(), engine: engineMode });
       const ms=(performance.now()-t0).toFixed(1);
       const parts=[];
       if(res.stdout) parts.push(esc(res.stdout));
@@ -1082,14 +1082,14 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   paintEngine();
 
   // ---- semantic-checker picker: "nim" (nimsem, default) | "aowl" (aowlsem,
-  //      experimental) (persisted). The choice lives on window.NifiOpts.sem, which
+  //      experimental) (persisted). The choice lives on window.AowliOpts.sem, which
   //      sem.js / engine.js read to route the semcheck stage in the worker. When
   //      aowl is active we show the "experimental" tag and re-check the buffer so
   //      the switch is immediate. ----
   const semSel = $("#semSel"), semExp = $("#semExp");
   let semMode = "nim";
   try{ const s = localStorage.getItem("np-sem"); if(s==="nim"||s==="aowl") semMode = s; }catch(_){}
-  window.NifiOpts.sem = semMode;
+  window.AowliOpts.sem = semMode;
   semSel.value = semMode;
   const SEM_DESC = {
     nim:  "nimsem — nimony's full semantic checker: resolves every symbol, overload and type against the bundled std library. The default.",
@@ -1102,7 +1102,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   }
   semSel.addEventListener("change",()=>{
     semMode = semSel.value==="aowl" ? "aowl" : "nim";
-    window.NifiOpts.sem = semMode;
+    window.AowliOpts.sem = semMode;
     paintSem();
     try{ localStorage.setItem("np-sem", semMode); }catch(_){}
     print('<span class="sys">'+SEM_DESC[semMode]+'</span>');
@@ -1113,23 +1113,23 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   });
   paintSem();
 
-  // ---- Run rung: the program's execution serialized as NIF (nifi_run.js — the
+  // ---- Run rung: the program's execution serialized as NIF (aowli_run.js — the
   //      tree-walker with the run emitter on). Computed ON DEMAND (opening the Run
   //      tab, or a Run while it's active), never on live edit since it executes the
   //      program. Cached by source+stdin so re-opening the tab is free. ----
   let runRungKey=null, runRungBusy=false;
   async function ensureRunRung(force){
-    if(!(window.NifiPipe && window.NifiPipe.ready)){ rnifEl.innerHTML='<span class="sys">engine still loading…</span>'; return; }
+    if(!(window.AowliPipe && window.AowliPipe.ready)){ rnifEl.innerHTML='<span class="sys">engine still loading…</span>'; return; }
     if(syntaxDiags.length){ rnifEl.innerHTML='<span class="err">fix the syntax errors first — the run rung needs a program that parses.</span>'; return; }
-    const src=window.NifiEditor.getValue(), stdin=currentStdin(), key=src+" "+stdin;
+    const src=window.AowliEditor.getValue(), stdin=currentStdin(), key=src+" "+stdin;
     if(!force && key===runRungKey && rnifEl.dataset.ok==="1") return;   // cached, unchanged
     if(runRungBusy) return;
     runRungBusy=true; rnifEl.dataset.ok=""; rnifEl.innerHTML='<span class="sys">● tracing the run…</span>';
     try{
-      const { nif, diags:syn } = window.NifiParser.parseFull(src, "in.nim");
+      const { nif, diags:syn } = window.AowliParser.parseFull(src, "in.nim");
       if(syn && syn.length){ rnifEl.innerHTML='<span class="err">syntax error — cannot trace the run.</span>'; return; }
-      const m = await window.NifiPipe.runrung(nif, stdin, window.NifiOpts.sem);
-      if(window.NifiEditor.getValue()!==src) return;   // buffer moved on; a later open refetches
+      const m = await window.AowliPipe.runrung(nif, stdin, window.AowliOpts.sem);
+      if(window.AowliEditor.getValue()!==src) return;   // buffer moved on; a later open refetches
       if(m.runnif){
         runRungKey=key; rnifEl.dataset.ok="1";
         rnifEl.innerHTML = renderNif(m.runnif) + "\n" +
@@ -1154,7 +1154,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     const r=document.documentElement;
     let i=THEMES.indexOf(r.getAttribute("data-theme")); i=(i+1)%THEMES.length;
     const t=THEMES[i];
-    r.setAttribute("data-theme",t); window.NifiEditor.setTheme(t);
+    r.setAttribute("data-theme",t); window.AowliEditor.setTheme(t);
     try{localStorage.setItem("np-theme",t); localStorage.setItem("aoughwl-theme", t==="light"?"light":"dark");}catch(_){}
     paintTheme();
   });
@@ -1162,9 +1162,9 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
 
   // ---- curly-brace mode toggle (experimental nifparser feature) ----
   const curlyBtn=$("#curlyBtn");
-  try{ if(localStorage.getItem("np-curly")==="1") window.NifiOpts.curly=true; }catch(_){}
+  try{ if(localStorage.getItem("np-curly")==="1") window.AowliOpts.curly=true; }catch(_){}
   function paintCurly(){
-    const on=!!window.NifiOpts.curly;
+    const on=!!window.AowliOpts.curly;
     curlyBtn.classList.toggle("on", on);
     curlyBtn.setAttribute("data-tip",
       (on?"Curly-brace mode ON":"Curly-brace mode off")+
@@ -1174,24 +1174,24 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   // Direction is inferred: if there's colon-style control flow to brace, go to
   // curly (and enable curly mode so it parses); otherwise unbrace back to colon.
   function convertBuffer(){
-    if(!window.NifiCurly) return;
-    const src = window.NifiEditor.getValue();
+    if(!window.AowliCurly) return;
+    const src = window.AowliEditor.getValue();
     let out, toCurly;
     try{
-      const curlyVer = window.NifiCurly.toCurly(src);
+      const curlyVer = window.AowliCurly.toCurly(src);
       if(curlyVer !== src){ out = curlyVer; toCurly = true; }
-      else { out = window.NifiCurly.toColon(src); toCurly = false; }
+      else { out = window.AowliCurly.toColon(src); toCurly = false; }
     }catch(_){ return; }
-    if(out === src && toCurly === false) out = window.NifiCurly.toColon(src);
-    window.NifiEditor.setValue(out);
-    window.NifiOpts.curly = toCurly;
+    if(out === src && toCurly === false) out = window.AowliCurly.toColon(src);
+    window.AowliEditor.setValue(out);
+    window.AowliOpts.curly = toCurly;
     try{localStorage.setItem("np-curly", toCurly?"1":"0");}catch(_){}
     paintCurly(); runParse(); runSemCheck();
   }
   curlyBtn.addEventListener("click",(e)=>{
     if(e.ctrlKey || e.metaKey){ e.preventDefault(); convertBuffer(); return; }
-    window.NifiOpts.curly=!window.NifiOpts.curly;
-    try{localStorage.setItem("np-curly", window.NifiOpts.curly?"1":"0");}catch(_){}
+    window.AowliOpts.curly=!window.AowliOpts.curly;
+    try{localStorage.setItem("np-curly", window.AowliOpts.curly?"1":"0");}catch(_){}
     paintCurly(); runParse(); runSemCheck();
   });
   paintCurly();
@@ -1247,7 +1247,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
     // menu contents for a right-click INSIDE the Monaco editor — drives Monaco's
     // own actions, so we keep its power (goto/palette) with our look.
     function editorItems(){
-      const ed=window.NifiEditor.getEditor(); if(!ed) return [];
+      const ed=window.AowliEditor.getEditor(); if(!ed) return [];
       const model=ed.getModel(), sel=ed.getSelection();
       const hasSel = sel && !sel.isEmpty();
       const selStr = hasSel ? model.getValueInRange(sel) : "";
@@ -1425,7 +1425,7 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   const shareBtn=$("#shareBtn"), shareHTML=shareBtn.innerHTML;
   const checkSVG='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 8.4l3 3 6.6-7.2"/></svg>';
   shareBtn.addEventListener("click",()=>{
-    const url=location.origin+location.pathname+"#c="+encodeShare(window.NifiEditor.getValue());
+    const url=location.origin+location.pathname+"#c="+encodeShare(window.AowliEditor.getValue());
     try{ history.replaceState(null,"",url); }catch(_){}
     const done=()=>{ shareBtn.innerHTML=checkSVG; shareBtn.classList.add("copied");
       setTimeout(()=>{ shareBtn.innerHTML=shareHTML; shareBtn.classList.remove("copied"); },1400); };
@@ -1434,19 +1434,19 @@ if(!("sem" in window.NifiOpts)) window.NifiOpts.sem = "nim";
   });
 
   // editor ready -> load a shared link if present, else the demo; parse on every edit
-  window.NifiEditor.onReady(()=>{
-    window.NifiEditor.onChange(scheduleParse);
+  window.AowliEditor.onReady(()=>{
+    window.AowliEditor.onChange(scheduleParse);
     const shared=(location.hash||"").match(/[#&]c=([^&]+)/);
     const code=shared?decodeShare(shared[1]):null;
     if(code!=null){
-      window.NifiEditor.setValue(code);
+      window.AowliEditor.setValue(code);
       print('<span class="sys">Loaded from a shared link — edit freely and press Run.</span>');
       runParse(); runSemCheck();
     } else {
       loadDemo();
     }
   });
-  if(window.NifiEngine&&window.NifiEngine.ready) window.__nifiEngineReady(true);
+  if(window.AowliEngine&&window.AowliEngine.ready) window.__nifiEngineReady(true);
 })();
 </script>
 </body>

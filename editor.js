@@ -1,6 +1,6 @@
 // editor.js — Monaco editor with a nimony grammar, plus a graceful textarea
 // fallback if the CDN is unavailable (keeps the playground working offline).
-// Exposes window.NifiEditor: { setValue, getValue, setTheme, onReady, setDiagnostics }.
+// Exposes window.AowliEditor: { setValue, getValue, setTheme, onReady, setDiagnostics }.
 (function(){
   const CDN = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs";
   const readyCbs = [];
@@ -134,13 +134,13 @@
   })();
 
   // recompute the import-underline decorations from the current model. Only std
-  // modules are underlined: known bare names (via NifiLsp.stdModules) or any
+  // modules are underlined: known bare names (via AowliLsp.stdModules) or any
   // explicit `std/…` path. Cheap enough to run debounced on every change.
   let importDecos = [];
   function computeImportDecos(){
     if(usingFallback || !editor || !monacoRef) return;
     const model = editor.getModel(); if(!model) return;
-    const mods = (window.NifiLsp && window.NifiLsp.stdModules) || null;
+    const mods = (window.AowliLsp && window.AowliLsp.stdModules) || null;
     const lines = model.getValue().split("\n"), decos = [];
     for(let i=0;i<lines.length;i++){
       const m = /^(\s*)(import|from|include)\b(.*)$/.exec(lines[i]);
@@ -207,7 +207,7 @@
     document.head.appendChild(s);
   }
 
-  window.NifiEditor = {
+  window.AowliEditor = {
     setValue(v){ if(usingFallback) fallbackEl.value=v; else if(editor) editor.setValue(v); },
     getValue(){ return usingFallback ? fallbackEl.value : (editor ? editor.getValue() : ""); },
     setTheme(t){ if(!usingFallback && monacoRef) monacoRef.editor.setTheme(monacoTheme(t)); },

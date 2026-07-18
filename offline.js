@@ -1,5 +1,5 @@
 // offline.js — wires the header "Offline copy" button. On click it fetches
-// every asset the playground needs, hands them to NifiAssemble.assembleStandalone
+// every asset the playground needs, hands them to AowliAssemble.assembleStandalone
 // (shared with build-standalone.sh), and downloads ONE self-contained .html that
 // runs from a file:// URL with no server. Uses only assets already served from
 // this origin, so it works on the live site (online). Inside an already-offline
@@ -11,7 +11,7 @@
   // DOM) so the download is deterministic even after the page mutates.
   var APP_SCRIPTS = ["examples.js","pipeline.js","engine.js","parser.js","sem.js","suggest.js",
                      "editor.js","lsp.js","curlyconvert.js","exporters.js","assemble.js","offline.js"];
-  var BUNDLES = ["worker.js","nifparser.js","nimsem.js","nifi.js","nifi_vm.js","nifi_run.js","nifjs.js","aowlts.js","aowlpy.js","aowljs-export.js","aowlc.js","aowllens.js","aowllsp.js","aowlsem.js","aowlsuggest.js"];
+  var BUNDLES = ["worker.js","nifparser.js","nimsem.js","aowli.js","aowli_vm.js","aowli_run.js","nifjs.js","aowlts.js","aowlpy.js","aowljs-export.js","aowlc.js","aowllens.js","aowllsp.js","aowlsem.js","aowlsuggest.js"];
 
   // ArrayBuffer -> base64, chunked so String.fromCharCode doesn't blow the call
   // stack on the ~4.9 MB stdlib blob.
@@ -63,7 +63,7 @@
       var restore = function(){ btn.innerHTML = orig; btn.disabled = false; busy = false; };
       btn.disabled = true; btn.innerHTML = "…";
       gather()
-        .then(function(a){ return window.NifiAssemble.assembleStandalone(a.indexHtml, a); })
+        .then(function(a){ return window.AowliAssemble.assembleStandalone(a.indexHtml, a); })
         .then(function(html){
           download(html);
           btn.innerHTML = "✓";
@@ -71,7 +71,7 @@
         })
         .catch(function(e){
           btn.innerHTML = "✕";
-          try{ if(window.NifiUI && window.NifiUI.toast) window.NifiUI.toast("Offline build failed: " + (e && e.message || e)); }catch(_){}
+          try{ if(window.AowliUI && window.AowliUI.toast) window.AowliUI.toast("Offline build failed: " + (e && e.message || e)); }catch(_){}
           setTimeout(restore, 1800);
         });
     });

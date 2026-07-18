@@ -60,7 +60,7 @@
     }
   };
 
-  window.NifiSuggest = suggest;
+  window.AowliSuggest = suggest;
 
   loadBundle().then(()=>{ suggest.ready = true; })
     .catch(e=>{ suggest.ready = false;

@@ -23,9 +23,9 @@
 // the bundle is ~8 ms, which is why parsing is debounced off keystrokes below.
 (function(){
   // Global curly toggle: callers that pass no `opts` follow whatever this is set
-  // to (the UI flips window.NifiOpts.curly). Initialize defensively in case this
+  // to (the UI flips window.AowliOpts.curly). Initialize defensively in case this
   // file loads before whoever else owns the object.
-  window.NifiOpts = window.NifiOpts || { curly:false };
+  window.AowliOpts = window.AowliOpts || { curly:false };
 
   const parser = { ready:false, parse:null };
   let bundleText = null, loadPromise = null;
@@ -76,28 +76,28 @@
   }
 
   // Synchronous once the bundle is loaded. Returns the `.p.nif` string, or throws.
-  // `opts.curly` (optional) forces curly mode; omitting it follows window.NifiOpts.
+  // `opts.curly` (optional) forces curly mode; omitting it follows window.AowliOpts.
   function parseSync(source, file, opts){
     if(!compiledMain) throw new Error("parser not loaded yet");
     // __np_curly: "1" enables experimental `{ … }` block bodies, "" = indent-only.
-    const curly = opts && ("curly" in opts) ? !!opts.curly : !!(window.NifiOpts && window.NifiOpts.curly);
+    const curly = opts && ("curly" in opts) ? !!opts.curly : !!(window.AowliOpts && window.AowliOpts.curly);
     return runParse(String(source), file || "in.nim", curly).nif;
   }
 
   // Full result: { nif, diags }. `diags` are the parser's own coordinates
   // (line 1-based, col 0-based); the caller shifts col to Monaco's 1-based.
-  // `opts.curly` (optional) forces curly mode; omitting it follows window.NifiOpts.
+  // `opts.curly` (optional) forces curly mode; omitting it follows window.AowliOpts.
   function parseFull(source, file, opts){
     if(!compiledMain) throw new Error("parser not loaded yet");
     // __np_curly: "1" enables experimental `{ … }` block bodies, "" = indent-only.
-    const curly = opts && ("curly" in opts) ? !!opts.curly : !!(window.NifiOpts && window.NifiOpts.curly);
+    const curly = opts && ("curly" in opts) ? !!opts.curly : !!(window.AowliOpts && window.AowliOpts.curly);
     const r = runParse(String(source), file || "in.nim", curly);
     return { nif: r.nif, diags: r.diags.slice() };
   }
 
   parser.parse = parseSync;
   parser.parseFull = parseFull;
-  window.NifiParser = parser;
+  window.AowliParser = parser;
 
   loadBundle().then(()=>{
     parser.ready = true;

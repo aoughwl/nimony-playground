@@ -26,7 +26,7 @@ your source
    ▼  nimsem     (nimony's semantic checker)
  .s.nif  (typed NIF)                               [Web Worker, warm-cached]
    │
-   ▼  nifi       (aoughwl/nifi — a typed-NIF interpreter)
+   ▼  aowli      (aoughwl/aowli — a typed-NIF interpreter)
    │             bytecode VM (fast path) ─┐
    │             tree-walker  (fallback) ─┴─▶ stdout / stderr / exit
    ▼
@@ -39,13 +39,13 @@ your source
 - **nimsem** turns the `.p.nif` into a typed `.s.nif`, resolving every symbol,
   overload, and type. It runs in a Web Worker and reuses a warm, pre-loaded
   stdlib closure, so each check after the first is milliseconds.
-- **nifi** runs the typed `.s.nif`. It tries a **bytecode VM** first (faster on
+- **aowli** runs the typed `.s.nif`. It tries a **bytecode VM** first (faster on
   compute) and falls back to an always-correct **tree-walker** for programs the
   VM can't yet run self-contained. Both share one in-memory linear heap.
 - **stdlib** ships as pre-compiled `.s.nif`/binary assets, so programs that
   `import std/…` a bundled module just work.
 
-Running nimsem + nifi in a Web Worker is what makes **Stop** work: a runaway loop
+Running nimsem + aowli in a Web Worker is what makes **Stop** work: a runaway loop
 can't be interrupted cooperatively, but the worker can be terminated (and a fresh
 one spun up from HTTP-cached bundles).
 
@@ -58,7 +58,7 @@ one spun up from HTTP-cached bundles).
 - **Multi-level NIF inspector** — the source pane tabs between your **Source**
   and the compilation tower it becomes: **Parsed** (`.p.nif`), **Typed**
   (`.s.nif`), and the **Run** rung — the program's *execution* serialized as NIF
-  (from nifi's run emitter). Rendered with structure-aware highlighting, still
+  (from aowli's run emitter). Rendered with structure-aware highlighting, still
   selectable/copyable as verbatim NIF.
 - **stdin**, a curly-brace block mode toggle, three themes, word-wrap, a
   resizable / re-orientable split, and shareable links (the code travels in the
@@ -72,9 +72,9 @@ editor.js       Monaco editor + nimony grammar (textarea fallback offline)
 lsp.js          in-browser nimony LSP (hover / completion / definition / outline)
 parser.js       nifparser seam (.p.nif on the main thread)
 sem.js          nimsem seam (facade over the worker)
-engine.js       compile-and-run seam (window.NifiEngine)
+engine.js       compile-and-run seam (window.AowliEngine)
 pipeline.js     owns the Web Worker; sem / run / runrung / stop
-worker.js       the worker: nimsem + nifi (VM, tree-walker, run rung)
+worker.js       the worker: nimsem + aowli (VM, tree-walker, run rung)
 curlyconvert.js colon ⇄ curly source rewriter
 examples.js     the starter program
 exporters.js    Export TypeScript / Python seam (drives aowlts.js / aowlpy.js)
@@ -85,9 +85,9 @@ assets/*.bin    pre-compiled stdlib closure for nimsem
 # bundles produced by aoughwl/nimony-web's nim_js backend:
 nifparser.js    the parser            (~0.9 MB)
 nimsem.js       the semantic checker  (~8.9 MB)
-nifi.js         interpreter, tree-walker
-nifi_vm.js      interpreter, bytecode VM (fast path)
-nifi_run.js     interpreter, tree-walker + run-rung emitter (lazy-loaded)
+aowli.js         interpreter, tree-walker
+aowli_vm.js      interpreter, bytecode VM (fast path)
+aowli_run.js     interpreter, tree-walker + run-rung emitter (lazy-loaded)
 aowlts.js       idiomatic-TypeScript exporter (aowlts) (~1.5 MB)
 aowlpy.js       idiomatic-Python exporter   (aowlpy) (~1.5 MB)
 ```

@@ -14,7 +14,7 @@
 // it would make all this intelligence vanish the moment the code stops
 // type-checking. Everything below survives a broken semcheck, because the parse
 // still succeeds. (sem is consulted only as optional garnish for INFERRED var
-// types, matched by symbol basename — see NifiLsp.enrich.)
+// types, matched by symbol basename — see AowliLsp.enrich.)
 (function(){
   // `providers` holds the Monaco language-feature providers once registered — a
   // small introspection surface (the playground can drive a feature directly, and
@@ -297,7 +297,7 @@
         }
       }
     }catch(_){}
-    const m = window.NifiEditor.getModel();
+    const m = window.AowliEditor.getModel();
     if(!m) return [];
     const flat = o => ({ name:o.sym.name, detail:o.sym.detail, kind:o.sym.kind,
       line:o.range.startLineNumber, col:o.range.startColumn });
@@ -431,7 +431,7 @@
   // that semchecks — so it mirrors STD_MODULES; kept as its own set so the label
   // logic stays correct if the bundled closure is ever trimmed.
   const TYPECHECKS = new Set(STD_MODULES);
-  // SANDBOX ⊂ TYPECHECKS: these also actually RUN in the nifi sandbox. The rest
+  // SANDBOX ⊂ TYPECHECKS: these also actually RUN in the aowli sandbox. The rest
   // parse + type-check (completions/hover) but may fail at RUN time (OS/FFI/threads).
   const SANDBOX = new Set(["syncio","system"]);
   lsp.stdModules = STD_MODULES;                 // shared with editor.js decorations
@@ -982,16 +982,16 @@
   // ---------------------------------------------------------------------------
   // 6. boot
   // ---------------------------------------------------------------------------
-  window.NifiLsp = lsp;
-  window.NifiEditor.onReady(()=>{
-    const monaco = window.NifiEditor.getMonaco();
+  window.AowliLsp = lsp;
+  window.AowliEditor.onReady(()=>{
+    const monaco = window.AowliEditor.getMonaco();
     if(!monaco){ // textarea fallback — no language services available
       if(window.__nifiLspStatus) window.__nifiLspStatus("off");
       return;
     }
     register(monaco);
     // now that STD_MODULES is exposed, (re)paint the import underlines (feat 2)
-    if(window.NifiEditor.refreshImportDecorations) window.NifiEditor.refreshImportDecorations();
+    if(window.AowliEditor.refreshImportDecorations) window.AowliEditor.refreshImportDecorations();
     lsp.ready = true;
     if(window.__nifiLspStatus) window.__nifiLspStatus("live");
   });

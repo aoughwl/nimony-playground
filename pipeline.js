@@ -1,11 +1,11 @@
 // pipeline.js — main-thread client for worker.js.
 //
-// Owns the Web Worker that runs nimsem + nifi off the UI thread, and exposes a
+// Owns the Web Worker that runs nimsem + aowli off the UI thread, and exposes a
 // small async surface the rest of the playground drives:
 //
-//   NifiPipe.sem(pnif)          -> Promise<{ snif, diags, cached }>
-//   NifiPipe.run(pnif, stdin)   -> Promise<{ stdout, stderr, exitCode, diags }>
-//   NifiPipe.stop()             -> kill the current run (terminate + respawn)
+//   AowliPipe.sem(pnif)          -> Promise<{ snif, diags, cached }>
+//   AowliPipe.run(pnif, stdin)   -> Promise<{ stdout, stderr, exitCode, diags }>
+//   AowliPipe.stop()             -> kill the current run (terminate + respawn)
 //
 // The Stop path is the whole reason execution lives in a worker: a runaway loop
 // in user code can't be interrupted cooperatively, but the worker CAN be
@@ -80,7 +80,7 @@
   // engine: "tree" | "vm" | "nifjs" (default "vm"). semEngine as above.
   pipe.run = (pnif, stdin, engine, semEngine) => request("run", { pnif:String(pnif), stdin:String(stdin||""), engine: engine||"vm", semEngine: semEngine||"nim" });
   // run rung: execute on the tree-walker with the run emitter on, returning the
-  // serialized execution NIF (see worker.js handleRunRung). Lazy-loads nifi_run.js.
+  // serialized execution NIF (see worker.js handleRunRung). Lazy-loads aowli_run.js.
   pipe.runrung = (pnif, stdin, semEngine) => request("runrung", { pnif:String(pnif), stdin:String(stdin||""), semEngine: semEngine||"nim" });
 
   // Kill the in-flight run (if any) and hand back a fresh worker. Any pending
@@ -97,6 +97,6 @@
   };
   pipe.busy = () => inflightRun != null;
 
-  window.NifiPipe = pipe;
+  window.AowliPipe = pipe;
   spawn();
 })();

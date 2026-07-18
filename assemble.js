@@ -1,6 +1,6 @@
 // assemble.js — the single source of truth for building the self-contained,
 // offline single-file playground. Pure string transforms, so it runs unchanged
-// in the browser (the "Offline copy" button, via window.NifiAssemble) AND in
+// in the browser (the "Offline copy" button, via window.AowliAssemble) AND in
 // Node (build-standalone.sh, via module.exports).
 //
 // It takes the live index.html plus every asset and returns ONE HTML document
@@ -33,9 +33,9 @@
     "worker.js":    "nifi-b-worker",
     "nifparser.js": "nifi-b-nifparser",
     "nimsem.js":    "nifi-b-nimsem",
-    "nifi.js":      "nifi-b-nifi",
-    "nifi_vm.js":   "nifi-b-nifi_vm",
-    "nifi_run.js":  "nifi-b-nifi_run",
+    "aowli.js":      "nifi-b-aowli",
+    "aowli_vm.js":   "nifi-b-aowli_vm",
+    "aowli_run.js":  "nifi-b-aowli_run",
     "nifjs.js":     "nifi-b-nifjs",
     "aowlts.js":    "nifi-b-aowlts",
     "aowlpy.js":    "nifi-b-aowlpy",
@@ -49,7 +49,7 @@
 
   // assets = {
   //   scripts:   { "editor.js": "<source>", ... }   external <script src> files
-  //   bundles:   { "worker.js": "<source>", "nifi.js": ... }  (see BUNDLE_IDS)
+  //   bundles:   { "worker.js": "<source>", "aowli.js": ... }  (see BUNDLE_IDS)
   //   stdlibB64: "<base64 of assets/nimsem-stdlib.bin>"
   //   logoB64:   "<base64 of aoughwl-logo-white.png>"
   //   faviconB64:"<base64 of favicon.ico>"  (optional)
@@ -93,8 +93,8 @@
       'function t(id){var e=document.getElementById(id);return e?e.textContent:null;}' +
       'return{workerText:t("nifi-b-worker"),bundles:{' +
         '"nifparser.js":t("nifi-b-nifparser"),"nimsem.js":t("nifi-b-nimsem"),' +
-        '"nifi.js":t("nifi-b-nifi"),"nifi_vm.js":t("nifi-b-nifi_vm"),' +
-        '"nifi_run.js":t("nifi-b-nifi_run"),"nifjs.js":t("nifi-b-nifjs"),' +
+        '"aowli.js":t("nifi-b-aowli"),"aowli_vm.js":t("nifi-b-aowli_vm"),' +
+        '"aowli_run.js":t("nifi-b-aowli_run"),"nifjs.js":t("nifi-b-nifjs"),' +
         '"aowlts.js":t("nifi-b-aowlts"),"aowlpy.js":t("nifi-b-aowlpy"),' +
         '"aowljs-export.js":t("nifi-b-aowljs"),"aowlc.js":t("nifi-b-aowlc"),' +
         '"aowllens.js":t("nifi-b-aowllens"),"aowllsp.js":t("nifi-b-aowllsp"),' +
@@ -109,5 +109,5 @@
 
   var api = { assembleStandalone: assembleStandalone };
   if(typeof module !== "undefined" && module.exports) module.exports = api;
-  if(global) global.NifiAssemble = api;
+  if(global) global.AowliAssemble = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

@@ -8448,7 +8448,7 @@ mem.setI32((strlit_0_I1553525636577314976_web5o9ahf1 + 4), 0);
 
 mem.setI32((strlit_0_I1553525636577314976_web5o9ahf1 + 8), 0);
 
-mem.writeStr((strlit_0_I1553525636577314976_web5o9ahf1 + 12), "__nifi_in");
+mem.writeStr((strlit_0_I1553525636577314976_web5o9ahf1 + 12), "__aowli_in");
 
 mem.setI32(strlit_0_I3599530940846529728_web5o9ahf1, 10);
 
@@ -8456,7 +8456,7 @@ mem.setI32((strlit_0_I3599530940846529728_web5o9ahf1 + 4), 0);
 
 mem.setI32((strlit_0_I3599530940846529728_web5o9ahf1 + 8), 0);
 
-mem.writeStr((strlit_0_I3599530940846529728_web5o9ahf1 + 12), "__nifi_src");
+mem.writeStr((strlit_0_I3599530940846529728_web5o9ahf1 + 12), "__aowli_src");
 
 mem.setI32(strlit_0_I16664880105326712979_web5o9ahf1, 10);
 
@@ -8472,7 +8472,7 @@ mem.setI32((strlit_0_I18328173893316797672_web5o9ahf1 + 4), 0);
 
 mem.setI32((strlit_0_I18328173893316797672_web5o9ahf1 + 8), 0);
 
-mem.writeStr((strlit_0_I18328173893316797672_web5o9ahf1 + 12), "__nifi_out");
+mem.writeStr((strlit_0_I18328173893316797672_web5o9ahf1 + 12), "__aowli_out");
 
 mem.setI32(strlit_0_I17369418658607956453_web5o9ahf1, 10);
 
@@ -8480,7 +8480,7 @@ mem.setI32((strlit_0_I17369418658607956453_web5o9ahf1 + 4), 0);
 
 mem.setI32((strlit_0_I17369418658607956453_web5o9ahf1 + 8), 0);
 
-mem.writeStr((strlit_0_I17369418658607956453_web5o9ahf1 + 12), "__nifi_err");
+mem.writeStr((strlit_0_I17369418658607956453_web5o9ahf1 + 12), "__aowli_err");
 
 mem.setI32(strlit_0_I14170704480046365032_web5o9ahf1, 11);
 
@@ -8488,7 +8488,7 @@ mem.setI32((strlit_0_I14170704480046365032_web5o9ahf1 + 4), 0);
 
 mem.setI32((strlit_0_I14170704480046365032_web5o9ahf1 + 8), 0);
 
-mem.writeStr((strlit_0_I14170704480046365032_web5o9ahf1 + 12), "__nifi_exit");
+mem.writeStr((strlit_0_I14170704480046365032_web5o9ahf1 + 12), "__aowli_exit");
 
 mem.setI32(strlit_0_I11901799661097360525_nifa1znj21, 7);
 
