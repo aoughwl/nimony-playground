@@ -198,11 +198,22 @@
             contextmenu:false,
             // wrap long lines on phones so code isn't cut off the right edge
             wordWrap: (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) ? "on" : "off",
+            // tight line-number gutter on phones — the default gutter wastes a lot
+            // of horizontal room on a small screen
+            glyphMargin: false,
+            lineNumbersMinChars: (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) ? 2 : 4,
+            lineDecorationsWidth: (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) ? 3 : 10,
+            folding: !(window.matchMedia && window.matchMedia("(max-width: 600px)").matches),
           });
-          // keep word-wrap in sync with viewport width (wrap on phones only)
+          // keep word-wrap + gutter width in sync with viewport width (phones only)
           try{
             const mq = window.matchMedia("(max-width: 600px)");
-            const applyWrap = () => { if(editor) editor.updateOptions({ wordWrap: mq.matches ? "on" : "off" }); };
+            const applyWrap = () => { if(editor) editor.updateOptions({
+              wordWrap: mq.matches ? "on" : "off",
+              lineNumbersMinChars: mq.matches ? 2 : 4,
+              lineDecorationsWidth: mq.matches ? 3 : 10,
+              folding: !mq.matches,
+            }); };
             if(mq.addEventListener) mq.addEventListener("change", applyWrap);
             else if(mq.addListener) mq.addListener(applyWrap);
           }catch(_){}

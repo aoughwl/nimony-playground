@@ -61,11 +61,15 @@
   // parse. `diags` is cloned out so callers can't mutate the cached array.
   let memo = { key:null, nif:"", diags:[] };
   function runParse(source, file, curly){
-    const key = (curly?"1":"0") + "\0" + file + "\0" + source;
+    // opt-in opinion-lint style keys (comma-separated), driven by the Config
+    // panel via window.AowliOpts.lintStyle. Empty = no opinion lints (default).
+    const style = (window.AowliOpts && window.AowliOpts.lintStyle) || "";
+    const key = (curly?"1":"0") + "\0" + style + "\0" + file + "\0" + source;
     if(memo.key === key) return memo;
     globalThis.__np_src  = source;
     globalThis.__np_file = file;
     globalThis.__np_curly = curly ? "1" : "";
+    globalThis.__np_style = style;
     globalThis.__np_out  = "";
     globalThis.__np_diag = "[]";
     compiledMain();

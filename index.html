@@ -369,6 +369,73 @@
   .quick-input-widget .monaco-scrollable-element>.scrollbar>.slider{background:var(--border)!important;border-radius:6px!important}
   .quick-input-widget .monaco-scrollable-element>.scrollbar>.slider:hover{background:var(--muted)!important}
 
+  /* ---- Config panel (slide-in drawer; full-screen sheet on phones) ---- */
+  .cfg-overlay{position:fixed;inset:0;z-index:120;visibility:hidden;opacity:0;
+    transition:opacity .18s ease, visibility 0s linear .18s}
+  .cfg-overlay.show{visibility:visible;opacity:1;transition:opacity .18s ease}
+  .cfg-backdrop{position:absolute;inset:0;background:rgba(3,6,12,.55);backdrop-filter:blur(2px)}
+  .cfg-panel{position:absolute;top:0;right:0;height:100%;width:430px;max-width:100vw;
+    background:var(--panel);border-left:1px solid var(--border);box-shadow:-18px 0 48px rgba(0,0,0,.35);
+    display:flex;flex-direction:column;transform:translateX(100%);transition:transform .2s ease}
+  .cfg-overlay.show .cfg-panel{transform:none}
+  .cfg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:14px 16px;border-bottom:1px solid var(--border);flex:none}
+  .cfg-title{display:flex;align-items:center;gap:9px;font-weight:650;font-size:15px;color:var(--fg)}
+  .cfg-title svg{width:17px;height:17px;color:var(--muted)}
+  .cfg-x{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:5px;border-radius:7px;
+    display:inline-flex;align-items:center;justify-content:center}
+  .cfg-x svg{width:16px;height:16px}
+  .cfg-x:hover{background:var(--panel2);color:var(--fg)}
+  .cfg-body{overflow-y:auto;padding:6px 16px 22px;flex:1 1 auto}
+  .cfg-sec{padding:14px 0;border-bottom:1px solid var(--border)}
+  .cfg-sec:last-child{border-bottom:0}
+  .cfg-sec-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .cfg-badge{font-size:10px;font-weight:650;letter-spacing:.02em;text-transform:none;color:var(--accent2);
+    background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+  .cfg-row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:34px;padding:3px 0}
+  .cfg-lbl{display:flex;flex-direction:column;gap:2px;font-size:13.5px;color:var(--fg);line-height:1.3}
+  .cfg-hint{font-size:11.5px;color:var(--muted);font-weight:400}
+  .cfg-ctl{flex:none;display:flex;align-items:center}
+  .cfg-note{font-size:12px;line-height:1.5;color:var(--muted);margin:2px 0 12px}
+  .cfg-note code{font-family:var(--mono);font-size:11px;background:var(--panel2);padding:0 4px;border-radius:4px}
+  .cfg-note .expTag{position:relative;top:-1px;margin-right:5px;display:inline-flex;height:16px;padding:0 6px;
+    border-radius:5px;border:1px solid var(--border);border-left:1px solid var(--border)}
+  /* selects reused from the toolbar — give them a self-contained box in the panel */
+  .cfg-ctl #semSel,.cfg-ctl #engineSel,.cfg-ctl select,.lintPreset{height:32px;border:1px solid var(--border);
+    border-radius:8px;background:var(--panel2);min-width:150px}
+  .cfg-num{width:64px;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);
+    color:var(--fg);font:inherit;font-size:13px;text-align:center;padding:0 6px;outline:none}
+  .cfg-num:focus{border-color:var(--accent)}
+  .cfg-iconbtn{width:38px;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);
+    color:var(--fg);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  .cfg-iconbtn svg{width:16px;height:16px}
+  .cfg-iconbtn:hover{background:var(--panel);border-color:var(--muted)}
+  .cfg-iconbtn.curly.on{color:var(--brace);border-color:var(--brace);background:var(--brace-bg)}
+  /* toggle switch */
+  .cfg-sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer;flex:none}
+  .cfg-sw input{position:absolute;opacity:0;width:0;height:0}
+  .cfg-sw span{position:absolute;inset:0;background:var(--panel2);border:1px solid var(--border);border-radius:22px;transition:.16s}
+  .cfg-sw span::before{content:"";position:absolute;left:3px;top:2.5px;width:15px;height:15px;border-radius:50%;
+    background:var(--muted);transition:.16s}
+  .cfg-sw input:checked + span{background:var(--accent);border-color:var(--accent)}
+  .cfg-sw input:checked + span::before{transform:translateX(15px);background:#fff}
+  .cfg-actions{display:flex;align-items:center;gap:12px;margin-top:14px}
+  .cfg-btn{border:1px solid var(--border);background:var(--panel2);color:var(--fg);font:inherit;font-size:13px;
+    font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer}
+  .cfg-btn:hover{background:var(--panel)}
+  .cfg-btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+  .cfg-btn.primary:hover{filter:brightness(1.08)}
+  .cfg-msg{font-size:12px;color:var(--muted)}
+  .cfg-msg.ok{color:var(--accent2)}
+  .cfg-msg.warn{color:var(--err)}
+  /* opinion-lint checkbox grid */
+  .cfg-lints{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-top:6px}
+  .cfg-lint{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg);cursor:pointer;
+    padding:3px 0;user-select:none}
+  .cfg-lint input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex:none}
+  .cfg-lint code{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
   /* ---- responsive / mobile ---- */
   /* narrow: stack the panes, drop the manual gutter — but keep the solo collapse
      working (don't let the forced flex re-expand a hidden output). */
@@ -384,29 +451,24 @@
   }
   /* phone: keep the logo, shrink the whole bar to fit one row */
   @media(max-width:600px){
-    header{min-height:40px}
-    .brand{padding-left:11px;gap:8px}
-    .brand .logo{width:76px;height:18px}
+    header{min-height:40px;flex-wrap:nowrap;align-items:center}
+    .brand{padding-left:11px;gap:8px;flex:0 0 auto}      /* natural size — never grow or squish */
+    .brand .logo{width:76px;height:18px;flex:0 0 auto}   /* the wordmark keeps its width */
     .brand h1{font-size:13px}
     .statusline{display:none}           /* declutter — status lives in the panes */
-    .actions button{padding:0 11px}
-    .actions button svg{width:15px;height:15px}
-    .actions button.run{padding:0 13px}
-    .actions button.run kbd{display:none}
     .pane .label{padding:7px 12px}
     footer{padding:8px 12px;font-size:11px}
     footer > span:not(.badge):not(#perf){display:none}
-    /* toolbar can't fit one row on a phone — let the header wrap the controls to a
-       second row, but keep every control its NATURAL size: square icon buttons, a
-       normal-width Run (not stretched full-width), no extra separator bar. */
-    header{flex-wrap:wrap;align-items:center}
-    .brand{flex:1 1 auto}
-    .actions{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-start;align-items:center;
-             gap:0;padding:2px 6px}
-    .actions > *{flex:0 0 auto;height:38px}                         /* natural width, uniform height */
-    .actions button:not(.run){width:38px;padding:0;justify-content:center;border-left:0}  /* square icons */
-    #semSel,#engineSel{min-width:0;padding:0 8px}
-    .actions button.run{padding:0 18px;border-left:0}               /* normal size, own natural width */
+    /* header stays ONE clean row: brand · [share][theme][config][Run]. Every
+       other control moved into the Config panel, so the bar is roomy now. */
+    .actions{flex:0 0 auto;align-items:center;gap:4px;padding-right:6px}
+    .actions button svg{width:15px;height:15px}
+    .actions button:not(.run){width:34px;height:34px;padding:0;justify-content:center;border-left:0;border-radius:7px}
+    .actions button.run{height:34px;border-left:0;border-radius:8px;padding:0 15px;margin-left:2px}
+    .actions button.run kbd{display:none}
+    /* Config panel becomes a full-screen sheet on phones */
+    .cfg-panel{width:100%;border-left:0}
+    .cfg-lints{grid-template-columns:1fr}
     /* segmented control (Source·Parsed·Typed·Run and the Export targets): wrap and
        drop the .aif/meta line onto its OWN row instead of truncating it. */
     .exportbar{flex-wrap:wrap;gap:6px 8px}
@@ -435,28 +497,15 @@
   </div>
   <div class="spacer"></div>
   <div class="actions">
-    <button id="curlyBtn" class="curly" data-tip="Curly-brace block mode (experimental)">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.3 2.5c-1.6 0-1.6 1.5-1.6 2.7 0 1.2-.5 1.8-1.5 2.8 1 1 1.5 1.6 1.5 2.8 0 1.2 0 2.7 1.6 2.7"/><path d="M9.7 2.5c1.6 0 1.6 1.5 1.6 2.7 0 1.2.5 1.8 1.5 2.8-1 1-1.5 1.6-1.5 2.8 0 1.2 0 2.7-1.6 2.7"/></svg>
-    </button>
     <button id="shareBtn" data-tip="Copy a shareable link to this code">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.4 9.6l3.2-3.2"/><path d="M8.7 4.6l1-1a2.15 2.15 0 013 3l-1.6 1.6"/><path d="M7.3 11.4l-1 1a2.15 2.15 0 01-3-3l1.6-1.6"/></svg>
-    </button>
-    <button id="offlineBtn" data-tip="Download a self-contained .html that runs offline from a local file">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v6.9"/><path d="M5.1 6.5L8 9.4l2.9-2.9"/><path d="M3 12.6h10"/></svg>
     </button>
     <button id="themeBtn" data-tip="Toggle light / dark theme">
       <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 000 10.8z" fill="currentColor"/></svg>
     </button>
-    <span id="semExp" class="expTag" hidden data-tip="aowlsem is an experimental, system-less semantic checker: it type-checks builtin arithmetic / if / case / while, but has no std `system` module — so programs using string, seq or echo produce honest “undeclared identifier” diagnostics.">experimental</span>
-    <select id="semSel" aria-label="Semantic checker" data-tip="Which semantic checker type-checks your program. nim (nimsem) is the full, default checker. aowl (aowlsem) is an experimental alternative — system-less, so it checks builtin arithmetic / if / case / while but reports string/seq/echo as undeclared.">
-      <option value="nim">nim · nimsem</option>
-      <option value="aowl">aowl · aowlsem</option>
-    </select>
-    <select id="engineSel" aria-label="Execution engine" data-tip="How your program runs. Bytecode VM & Tree-walk are the faithful nimony interpreter; Native JS transpiles to JavaScript for near-native speed (unsupported programs fall back automatically).">
-      <option value="vm">Bytecode VM</option>
-      <option value="tree">Tree-walk</option>
-      <option value="nifjs">Native JS</option>
-    </select>
+    <button id="configBtn" data-tip="Configuration — checker, engine, formatting &amp; lints">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.5M8 12.9v1.5M14.4 8h-1.5M3.1 8H1.6M12.5 3.5l-1.05 1.05M4.55 11.45 3.5 12.5M12.5 12.5l-1.05-1.05M4.55 4.55 3.5 3.5"/></svg>
+    </button>
     <button class="run" id="runBtn" disabled data-tip="Compile & run — Ctrl/Cmd + Enter">
       <svg viewBox="0 0 16 16"><path d="M4.5 3.2l8 4.8-8 4.8z" fill="currentColor"/></svg> Run <kbd>⌃⏎</kbd>
     </button>
@@ -543,6 +592,132 @@
   </section>
 </main>
 
+<!-- ============================ Config panel ============================ -->
+<!-- A slide-in settings drawer (full-screen sheet on phones). The sem / engine
+     pickers, curly toggle and offline-download button were RELOCATED here out of
+     the toolbar; their existing handlers still find them by id, so no rewiring.
+     aowlfmt formatting and aowlsuggest opinion-lints are new, wired in the main
+     script (format.js does the actual layout pass with the parser gate). -->
+<div id="cfgOverlay" class="cfg-overlay" aria-hidden="true">
+  <div class="cfg-backdrop" id="cfgBackdrop"></div>
+  <aside class="cfg-panel" role="dialog" aria-modal="true" aria-label="Playground configuration">
+    <div class="cfg-head">
+      <div class="cfg-title">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.5M8 12.9v1.5M14.4 8h-1.5M3.1 8H1.6M12.5 3.5l-1.05 1.05M4.55 11.45 3.5 12.5M12.5 12.5l-1.05-1.05M4.55 4.55 3.5 3.5"/></svg>
+        Configuration
+      </div>
+      <button id="cfgClose" class="cfg-x" aria-label="Close configuration">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="cfg-body">
+
+      <section class="cfg-sec">
+        <div class="cfg-sec-h">Semantic checker</div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Checker<span class="cfg-hint">type-checks your program</span></div>
+          <div class="cfg-ctl">
+            <select id="semSel" aria-label="Semantic checker">
+              <option value="nim">nim · nimsem</option>
+              <option value="aowl">aowl · aowlsem</option>
+            </select>
+          </div>
+        </div>
+        <p class="cfg-note" id="semExpNote" hidden><span id="semExp" class="expTag">experimental</span>
+          aowlsem is system-less: it checks builtin arithmetic / if / case / while, but has no
+          std <code>system</code>, so string / seq / echo programs report honest “undeclared” diagnostics.</p>
+      </section>
+
+      <section class="cfg-sec">
+        <div class="cfg-sec-h">Execution engine</div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Engine<span class="cfg-hint">how your program runs on Run</span></div>
+          <div class="cfg-ctl">
+            <select id="engineSel" aria-label="Execution engine">
+              <option value="vm">Bytecode VM</option>
+              <option value="tree">Tree-walk</option>
+              <option value="nifjs">Native JS</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="cfg-sec">
+        <div class="cfg-sec-h">Editor</div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Curly-brace block mode<span class="cfg-hint">accept <code>{ … }</code> blocks (experimental)</span></div>
+          <div class="cfg-ctl">
+            <button id="curlyBtn" class="curly cfg-iconbtn" data-tip="Toggle curly-brace block mode — Ctrl/Cmd-click to convert the buffer">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.3 2.5c-1.6 0-1.6 1.5-1.6 2.7 0 1.2-.5 1.8-1.5 2.8 1 1 1.5 1.6 1.5 2.8 0 1.2 0 2.7 1.6 2.7"/><path d="M9.7 2.5c1.6 0 1.6 1.5 1.6 2.7 0 1.2.5 1.8 1.5 2.8-1 1-1.5 1.6-1.5 2.8 0 1.2 0 2.7-1.6 2.7"/></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="cfg-sec">
+        <div class="cfg-sec-h">Formatting<span class="cfg-badge">aowlfmt</span></div>
+        <p class="cfg-note">Layout-only, and <strong>proven safe</strong>: the reformat is applied only if
+          the parser confirms it changed nothing but whitespace (the AIF-equivalence gate).</p>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Max blank lines</div>
+          <div class="cfg-ctl"><input type="number" id="fmtMaxBlank" class="cfg-num" min="0" max="9" value="1"></div>
+        </div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Tab width<span class="cfg-hint">0 = leave tabs as-is</span></div>
+          <div class="cfg-ctl"><input type="number" id="fmtTabWidth" class="cfg-num" min="0" max="8" value="0"></div>
+        </div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Trim trailing whitespace</div>
+          <div class="cfg-ctl"><label class="cfg-sw"><input type="checkbox" id="fmtTrimTrail" checked><span></span></label></div>
+        </div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Ensure final newline</div>
+          <div class="cfg-ctl"><label class="cfg-sw"><input type="checkbox" id="fmtFinalNl" checked><span></span></label></div>
+        </div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Drop leading blank lines</div>
+          <div class="cfg-ctl"><label class="cfg-sw"><input type="checkbox" id="fmtTrimLead" checked><span></span></label></div>
+        </div>
+        <div class="cfg-actions">
+          <button id="fmtRun" class="cfg-btn primary">Format document</button>
+          <span id="fmtMsg" class="cfg-msg"></span>
+        </div>
+      </section>
+
+      <section class="cfg-sec">
+        <div class="cfg-sec-h">Opinion lints<span class="cfg-badge">aowlsuggest</span></div>
+        <p class="cfg-note">Off by default. Enable a habit to flag valid-but-noteworthy code; each one
+          shows as a hint in the editor with a quick-fix (via <strong>aowlparser → aowlsuggest</strong>).</p>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Preset</div>
+          <div class="cfg-ctl">
+            <select id="lintPreset" aria-label="Lint preset">
+              <option value="off">Off</option>
+              <option value="idiomatic">Idiomatic</option>
+              <option value="strict">Strict (all)</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+        </div>
+        <div class="cfg-lints" id="lintGrid"><!-- checkboxes injected by JS --></div>
+      </section>
+
+      <section class="cfg-sec">
+        <div class="cfg-sec-h">Export</div>
+        <div class="cfg-row">
+          <div class="cfg-lbl">Offline copy<span class="cfg-hint">a single <code>.html</code> that runs from a local file</span></div>
+          <div class="cfg-ctl">
+            <button id="offlineBtn" class="cfg-iconbtn" data-tip="Download a self-contained .html that runs offline">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v6.9"/><path d="M5.1 6.5L8 9.4l2.9-2.9"/><path d="M3 12.6h10"/></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </aside>
+</div>
+
 <footer>
   <span class="badge">● 100% client-side</span>
   <span class="ftxt"><a href="https://github.com/aoughwl/nifparser" target="_blank" rel="noopener"><code>nifparser</code></a> · <a href="https://github.com/nim-lang/nimony" target="_blank" rel="noopener"><code>nimsem</code></a> · <a href="https://github.com/aoughwl/aowli" target="_blank" rel="noopener"><code>aowli</code></a> → JS in this tab, no backend</span>
@@ -588,15 +763,16 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
 <script src="examples.js?v=6"></script>
 <script src="pipeline.js?v=15"></script>
 <script src="engine.js?v=11"></script>
-<script src="parser.js?v=9"></script>
+<script src="parser.js?v=10"></script>
 <script src="sem.js?v=9"></script>
 <script src="suggest.js?v=1"></script>
-<script src="editor.js?v=8"></script>
+<script src="editor.js?v=9"></script>
 <script src="lsp.js?v=9"></script>
 <script src="curlyconvert.js?v=7"></script>
 <script src="exporters.js?v=2"></script>
 <script src="assemble.js?v=2"></script>
 <script src="offline.js?v=2"></script>
+<script src="format.js?v=1"></script>
 <script>
 (function(){
   const $ = s => document.querySelector(s);
@@ -987,8 +1163,9 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     if(e.target.closest("#symList .sym") || e.target.closest("#out .prob")) jumpFromEl(e.target);
   });
   function setDiagBadge(marks){
-    // count only true errors (warnings don't block Run or turn the dot red)
-    st.errCount = (marks||[]).filter(m=>(m.severity||"error")!=="warning").length;
+    // count only true ERRORS — warnings AND hints (e.g. opinion lints) never block
+    // Run or turn the status dot red.
+    st.errCount = (marks||[]).filter(m=>(m.severity||"error")==="error").length;
     paintStatus();
   }
 
@@ -1012,7 +1189,10 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       const ms=(performance.now()-t0).toFixed(1);
       if(window.AowliLsp) window.AowliLsp.update(src, nif);
       syntaxDiags = diags || [];
-      if(syntaxDiags.length) semDiags = [];
+      // opinion lints (warning/hint) now ride this stream too — only genuine
+      // ERRORS should suppress the sem check or read as "syntax errors".
+      const synErrList = syntaxDiags.filter(d=>(d.severity||"error")==="error");
+      if(synErrList.length) semDiags = [];
       // aowlsuggest quick-fixes over the parser's diagnostics — computed here on the
       // main thread (aowlsuggest is tiny, no worker) and stashed for the Monaco
       // code-action provider (see lsp.js). Robust: returns [] if unavailable/throws.
@@ -1021,10 +1201,10 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       refreshMarkers();
       // only surface a banner when there ARE syntax errors — a clean parse just
       // shows the NIF (no "no syntax errors" noise).
-      const banner = syntaxDiags.length
-        ? '<span class="err">● '+syntaxDiags.length+' syntax '+
-            (syntaxDiags.length===1?'error':'errors')+':\n'+
-            syntaxDiags.map(d=>'  '+d.line+':'+((d.col|0)+1)+'  '+esc(d.message)+
+      const banner = synErrList.length
+        ? '<span class="err">● '+synErrList.length+' syntax '+
+            (synErrList.length===1?'error':'errors')+':\n'+
+            synErrList.map(d=>'  '+d.line+':'+((d.col|0)+1)+'  '+esc(d.message)+
             (d.fix?'\n        💡 '+esc(d.fix):'')).join('\n')+'</span>\n\n'
         : '';
       pnifEl.innerHTML = banner + renderNif(nif) + "\n" +
@@ -1037,7 +1217,8 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     }
   }
   async function runSemCheck(){
-    if(syntaxDiags.length){ semStatus(""); return; }
+    // only real syntax ERRORS gate the sem check; opinion-lint warnings/hints don't.
+    if(syntaxDiags.some(d=>(d.severity||"error")==="error")){ semStatus(""); return; }
     if(!window.AowliSem || !window.AowliSem.ready || !window.AowliParser || !window.AowliParser.ready) return;
     try{
       const src = window.AowliEditor.getValue();
@@ -1175,10 +1356,11 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     nim:  "nimsem — nimony's full semantic checker: resolves every symbol, overload and type against the bundled std library. The default.",
     aowl: "aowlsem (experimental) — a system-less alternative checker. It type-checks builtin arithmetic / if / case / while, but has no std `system` module, so programs using string, seq or echo report honest “undeclared identifier” diagnostics."
   };
+  const semExpNote = $("#semExpNote");
   function paintSem(){
     const aowl = semMode==="aowl";
     semSel.classList.toggle("aowl", aowl);
-    if(semExp) semExp.hidden = !aowl;
+    if(semExpNote) semExpNote.hidden = !aowl;   // the whole explanatory note in Config
   }
   semSel.addEventListener("change",()=>{
     semMode = semSel.value==="aowl" ? "aowl" : "nim";
@@ -1540,6 +1722,116 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     }
   });
   if(window.AowliEngine&&window.AowliEngine.ready) window.__nifiEngineReady(true);
+
+  // ======================= Config panel wiring =========================
+  window.AowliOpts = window.AowliOpts || {};
+  (function(){
+    const overlay=$("#cfgOverlay"), openBtn=$("#configBtn"),
+          closeBtn=$("#cfgClose"), backdrop=$("#cfgBackdrop");
+    function openCfg(){ overlay.classList.add("show"); overlay.setAttribute("aria-hidden","false"); }
+    function closeCfg(){ overlay.classList.remove("show"); overlay.setAttribute("aria-hidden","true"); }
+    openBtn.addEventListener("click", openCfg);
+    closeBtn.addEventListener("click", closeCfg);
+    backdrop.addEventListener("click", closeCfg);
+    document.addEventListener("keydown", e=>{
+      if(e.key==="Escape" && overlay.classList.contains("show")) closeCfg();
+    });
+
+    // ---- aowlfmt: Format document (layout pass + AIF-equivalence gate) ----
+    const fmtRun=$("#fmtRun"), fmtMsg=$("#fmtMsg"),
+          fmtMaxBlank=$("#fmtMaxBlank"), fmtTabWidth=$("#fmtTabWidth"),
+          fmtTrimTrail=$("#fmtTrimTrail"), fmtFinalNl=$("#fmtFinalNl"), fmtTrimLead=$("#fmtTrimLead");
+    function setFmtMsg(t, cls){ fmtMsg.textContent=t||""; fmtMsg.className="cfg-msg"+(cls?(" "+cls):""); }
+    fmtRun.addEventListener("click", ()=>{
+      if(!window.AowlFmt){ setFmtMsg("formatter not loaded", "warn"); return; }
+      const src=window.AowliEditor.getValue();
+      const r=window.AowlFmt.format(src, {
+        maxBlankLines: Math.max(0, parseInt(fmtMaxBlank.value,10)||0),
+        tabWidth: Math.max(0, parseInt(fmtTabWidth.value,10)||0),
+        trimTrailing: fmtTrimTrail.checked,
+        finalNewline: fmtFinalNl.checked,
+        trimLeadingBlanks: fmtTrimLead.checked,
+      });
+      if(r.changed && r.safe){
+        window.AowliEditor.setValue(r.text); runParse(); runSemCheck();
+        setFmtMsg("✓ formatted", "ok");
+      } else if(!r.safe){
+        setFmtMsg("⚠ "+(r.reason||"refused"), "warn");
+      } else {
+        setFmtMsg("already formatted", "");
+      }
+      setTimeout(()=>setFmtMsg(""), 4000);
+    });
+
+    // ---- aowlsuggest: opt-in opinion lints (keys match the parser __np_style) ----
+    const LINTS=[
+      ["nil","nil comparison","x == nil  →  x.isNil"],
+      ["yoda","yoda condition","5 == x  →  x == 5"],
+      ["parens","redundant parens","if (c):  →  if c:"],
+      ["emptystr","empty-string concat","s & \"\" is a no-op"],
+      ["echo","bare echo","a debug echo left in"],
+      ["range","manual range index","0 .. n-1  →  0 ..< n"],
+      ["broadexcept","broad exception","except Exception (too broad)"],
+      ["bareexcept","bare except","except: with no type"],
+      ["cast","cast used","cast[T](x) reinterpret"],
+      ["converter","converter defined","implicit conversions"],
+      ["addr","addr / unsafeAddr","taking a raw address"],
+      ["asm","asm block","inline assembly"],
+      ["idioms","idiom nits","== true / not not"],
+      ["floateq","float equality","== against a float"],
+      ["semicolon","redundant ;","trailing semicolon"],
+      ["coperators","C operators","&& / || habit"],
+    ];
+    const PRESETS={
+      off: [],
+      idiomatic: ["nil","yoda","parens","emptystr","range","idioms","semicolon","coperators","floateq"],
+      strict: LINTS.map(l=>l[0]),
+    };
+    const lintGrid=$("#lintGrid"), lintPreset=$("#lintPreset");
+    const enabled=new Set();
+    LINTS.forEach(([key,label,hint])=>{
+      const lab=document.createElement("label");
+      lab.className="cfg-lint"; lab.title=hint;
+      const cb=document.createElement("input");
+      cb.type="checkbox"; cb.dataset.key=key;
+      const span=document.createElement("span"); span.textContent=label;
+      lab.appendChild(cb); lab.appendChild(span);
+      cb.addEventListener("change", ()=>{
+        if(cb.checked) enabled.add(key); else enabled.delete(key);
+        syncPresetLabel(); applyLints();
+      });
+      lintGrid.appendChild(lab);
+    });
+    function reflectChecks(){
+      lintGrid.querySelectorAll("input").forEach(cb=>{ cb.checked=enabled.has(cb.dataset.key); });
+    }
+    function setsEqual(arr){ return arr.length===enabled.size && arr.every(k=>enabled.has(k)); }
+    function syncPresetLabel(){
+      let val="custom";
+      if(enabled.size===0) val="off";
+      else if(setsEqual(PRESETS.idiomatic)) val="idiomatic";
+      else if(setsEqual(PRESETS.strict)) val="strict";
+      lintPreset.value=val;
+    }
+    function applyLints(){
+      window.AowliOpts.lintStyle=[...enabled].join(",");
+      try{ localStorage.setItem("np-lints", window.AowliOpts.lintStyle); }catch(_){}
+      recheckAll();
+    }
+    lintPreset.addEventListener("change", ()=>{
+      if(lintPreset.value==="custom") return;
+      enabled.clear();
+      (PRESETS[lintPreset.value]||[]).forEach(k=>enabled.add(k));
+      reflectChecks(); applyLints();
+    });
+    // restore persisted lint selection (drives the very first parse, no recheck yet)
+    try{
+      const saved=localStorage.getItem("np-lints");
+      if(saved) saved.split(",").filter(Boolean).forEach(k=>enabled.add(k));
+    }catch(_){}
+    window.AowliOpts.lintStyle=[...enabled].join(",");
+    reflectChecks(); syncPresetLabel();
+  })();
 })();
 </script>
 </body>
