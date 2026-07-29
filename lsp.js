@@ -775,7 +775,7 @@
           if(wm && STD_MODULES.indexOf(wm.word)>=0){
             const nm = wm.word, runs = SANDBOX.has(nm), typed = TYPECHECKS.has(nm);
             const r = new monaco.Range(position.lineNumber, wm.startColumn, position.lineNumber, wm.endColumn);
-            const note = "_builtin std module — “Go to definition” not implemented (browser sandbox) · "
+            const note = "_std module · **F12 / Ctrl-click to open the source** · "
               + (runs?"runs in the sandbox":typed?"type-checks (bundled)":"parse only") + "_";
             return { range:r, contents:[ {value:"```nimony\nimport std/"+nm+"\n```"}, {value:note} ] };
           }
@@ -802,6 +802,12 @@
     // --- go to definition ---
     monaco.languages.registerDefinitionProvider(LANG, {
       provideDefinition(model, position){
+        // A std module name on an import line: DON'T open it here. Monaco calls the
+        // definition provider on Ctrl+HOVER (to draw the link), so opening from here
+        // would navigate on hover. std navigation is handled by the real mouse-up /
+        // F12 handlers wired below (wireStdNav) — this provider stays side-effect-free
+        // and just declines std imports so no spurious "definition" is claimed.
+        if(stdModuleAt(model, position)) return null;
         const al = alDefinition(monaco, model, position);   // aowllsp-backed; null → fall back
         if(al) return al;
         const w = model.getWordAtPosition(position);
@@ -815,6 +821,41 @@
         return { uri: model.uri, range: r };
       }
     });
+
+    // std-import navigation: the module name under the cursor on an import line,
+    // or null. Shared by the definition provider (to decline) and the real
+    // click / F12 handlers below (to open).
+    function stdModuleAt(model, position){
+      if(!model || !position) return null;
+      let lineC = ""; try{ lineC = model.getLineContent(position.lineNumber); }catch(_){ return null; }
+      if(!/^\s*(import|from|include)\b/.test(lineC)) return null;
+      const wm = model.getWordAtPosition(position);
+      return (wm && STD_MODULES.indexOf(wm.word) >= 0) ? wm.word : null;
+    }
+    function openStd(name){
+      if(!name || !window.AowliStd) return;
+      if(!window.AowliStd.openModuleSync(name)) window.AowliStd.openModule(name).catch(()=>{});
+    }
+    // Wire the ACTUAL navigation to real gestures (never hover): Ctrl/Cmd-click and
+    // F12. This is what fixes "hovering with Ctrl held opens the module".
+    function wireStdNav(){
+      const ed = window.AowliEditor && window.AowliEditor.getEditor && window.AowliEditor.getEditor();
+      if(!ed || ed.__stdNavWired) return; ed.__stdNavWired = true;
+      ed.onMouseUp(e=>{
+        const ev = e && e.event; if(!ev || !(ev.ctrlKey || ev.metaKey)) return;
+        const pos = e.target && e.target.position; if(!pos) return;
+        const name = stdModuleAt(ed.getModel(), pos);
+        if(name){ ev.preventDefault && ev.preventDefault(); openStd(name); }
+      });
+      // F12 = Go to Definition. Handle std ourselves; otherwise fall back to Monaco's.
+      ed.addCommand(monaco.KeyCode.F12, ()=>{
+        const name = stdModuleAt(ed.getModel(), ed.getPosition());
+        if(name) openStd(name);
+        else ed.trigger("kb", "editor.action.revealDefinition", {});
+      });
+    }
+    if(window.AowliEditor && window.AowliEditor.onReady) window.AowliEditor.onReady(wireStdNav);
+    else wireStdNav();
 
     // --- completions ---
     monaco.languages.registerCompletionItemProvider(LANG, {

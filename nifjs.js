@@ -713,4 +713,5 @@ function run(snifText){
 const api = { compile, run, readNif, _emitModule: emitModule };
 if(typeof module !== "undefined" && module.exports) module.exports = api;
 if(global) global.NifiJs = api;
+if(global) global.AowliJs = api;   // worker.js loads the Native-JS engine under this name
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

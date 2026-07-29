@@ -45,23 +45,44 @@
     return ln.slice(0, e);
   }
 
-  // Expand ONLY the leading run of tabs to `width` spaces each.
-  function leadingTabsToSpaces(ln, width){
-    let i = 0, pad = 0;
-    while(i < ln.length && ln[i] === "\t"){ pad += width; i++; }
-    if(i === 0) return ln;
-    return " ".repeat(pad) + ln.slice(i);
+  // Re-indent to `width` spaces per nesting level. nimony/nim code is
+  // space-indented, so the old "expand literal tabs" rule was a no-op on it —
+  // this instead RESCALES indentation: each distinct deeper leading-indent is a
+  // level (Python-tokenizer style), re-emitted as width*level spaces. A tab in
+  // the leading run counts as one column. Blank / whitespace-only lines are left
+  // empty. This can change indentation columns, but not nesting — and the caller
+  // runs the AIF-equivalence gate afterwards, so any reindent that would alter
+  // the program is refused and the buffer is left byte-for-byte unchanged.
+  function reindentToWidth(lines, width){
+    const out = new Array(lines.length);
+    const stack = [0];                 // leading-indent columns for levels 0..n
+    for(let i = 0; i < lines.length; i++){
+      const ln = lines[i];
+      let j = 0;
+      while(j < ln.length && (ln[j] === " " || ln[j] === "\t")) j++;
+      if(j === ln.length){ out[i] = ""; continue; }   // blank / ws-only
+      const col = j, body = ln.slice(j);
+      if(col > stack[stack.length - 1]){
+        stack.push(col);
+      } else {
+        while(stack.length > 1 && col < stack[stack.length - 1]) stack.pop();
+        if(col > stack[stack.length - 1]) stack.push(col);  // unaligned dedent
+      }
+      const level = stack.length - 1;
+      out[i] = " ".repeat(width * level) + body;
+    }
+    return out;
   }
 
   function applyRules(src, opts){
     let lines = splitKeep(src);
-    // per-line transforms
+    // trailing-whitespace trim first (per line), so indentation measurement below
+    // isn't fooled by trailing spaces on otherwise-blank lines.
     for(let i=0;i<lines.length;i++){
-      let ln = lines[i];
-      if(opts.tabWidth > 0) ln = leadingTabsToSpaces(ln, opts.tabWidth);
-      if(opts.trimTrailing) ln = rstripLine(ln);
-      lines[i] = ln;
+      if(opts.trimTrailing) lines[i] = rstripLine(lines[i]);
     }
+    // rescale indentation to width spaces per level (gate-protected, see above)
+    if(opts.tabWidth > 0) lines = reindentToWidth(lines, opts.tabWidth);
     // collapse runs of blank lines (+ drop leading blanks)
     const kept = [];
     let blankRun = 0, seenContent = false;

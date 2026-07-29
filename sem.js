@@ -22,11 +22,16 @@
   }
 
   // pnif: the `.p.nif` string. `eng` (optional) overrides the global sem toggle.
-  // Returns Promise<{ snif, diags, cached }>.
-  sem.compile = function(pnif, eng){
+  // Returns Promise<{ snif, diags, cached }>. For a multi-file workspace the live
+  // check also resolves cross-file imports (multi-module nimsem), so a definition
+  // in another project file / cloned repo type-checks — `src` (the active buffer)
+  // lets the payload use the live, unsaved text for the active module.
+  sem.compile = function(pnif, eng, src){
     if(!(window.AowliPipe && window.AowliPipe.ready))
       return Promise.reject(new Error("nimsem not loaded yet"));
-    return window.AowliPipe.sem(pnif, semEngine(eng)).then(m => {
+    const engine = semEngine(eng);
+    const multi = (engine === "nim" && window.__aowliBuildMulti && src != null) ? window.__aowliBuildMulti(src) : null;
+    return window.AowliPipe.sem(pnif, engine, multi).then(m => {
       if(m.cached) hits++; else { misses++; warm = Math.min(warm + 1, 8); }
       return { snif:m.snif, diags:m.diags || [], cached:!!m.cached };
     });

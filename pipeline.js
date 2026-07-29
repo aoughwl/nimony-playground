@@ -27,7 +27,7 @@
       const blob = new Blob([INLINE.workerText], { type:"text/javascript" });
       worker = new Worker(URL.createObjectURL(blob));
     }else{
-      worker = new Worker("worker.js?v=18");
+      worker = new Worker("worker.js?v=19");
     }
     worker.onmessage = (ev) => {
       const m = ev.data || {};
@@ -76,12 +76,19 @@
 
   // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental). It selects
   // which semantic checker turns the .p.nif into the typed .s.nif inside the worker.
-  pipe.sem = (pnif, semEngine) => request("sem", { pnif:String(pnif), semEngine: semEngine||"nim" });
+  // `multi` (optional) = { mainpath, paths, modules } enabling the multi-module
+  // (workspace) semcheck for cross-file / cross-project imports; ignored by an old
+  // nimsem bundle that lacks the entry.
+  pipe.sem = (pnif, semEngine, multi) => request("sem", { pnif:String(pnif), semEngine: semEngine||"nim", multi: multi||null });
   // engine: "tree" | "vm" | "nifjs" (default "vm"). semEngine as above.
-  pipe.run = (pnif, stdin, engine, semEngine) => request("run", { pnif:String(pnif), stdin:String(stdin||""), engine: engine||"vm", semEngine: semEngine||"nim" });
+  pipe.run = (pnif, stdin, engine, semEngine, multi) => request("run", { pnif:String(pnif), stdin:String(stdin||""), engine: engine||"vm", semEngine: semEngine||"nim", multi: multi||null });
   // run rung: execute on the tree-walker with the run emitter on, returning the
   // serialized execution NIF (see worker.js handleRunRung). Lazy-loads aowli_run.js.
   pipe.runrung = (pnif, stdin, semEngine) => request("runrung", { pnif:String(pnif), stdin:String(stdin||""), semEngine: semEngine||"nim" });
+  // debug: semcheck (cached) + run the dmStep capture engine; resolves to
+  // { steps:[...], truncated, stdout, stderr, exitCode, diags } for the
+  // time-travel debugger UI. Lazy-loads aowli_dbg.js in the worker.
+  pipe.debug = (pnif, stdin, semEngine, multi) => request("debug", { pnif:String(pnif), stdin:String(stdin||""), semEngine: semEngine||"nim", multi: multi||null });
 
   // Kill the in-flight run (if any) and hand back a fresh worker. Any pending
   // request is rejected with a `stopped` flag so callers can distinguish a user

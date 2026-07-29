@@ -118,6 +118,22 @@
       if(!out && err) throw new Error(err);
       return out;
     },
+    // The LOWERED .c.nif (aowlhexer output) — the same intermediate the C printer
+    // consumes, exposed for the "Lowered" compile-stage. Runs the hexer bundle
+    // (shared with toC) and returns the `.c.nif`/`.x.nif` NIF text parked on
+    // globalThis.__cnif. Lazy: the ~6 MB bundle loads on first use.
+    async toCNif(snif){
+      if(!snif) throw new Error("no typed .s.nif to lower (compile the program first)");
+      await cBundle.load();
+      globalThis.__c_src = String(snif);
+      globalThis.__cnif = "";
+      globalThis.__c_err = "";
+      cBundle.run();
+      const out = String(globalThis.__cnif || "");
+      const err = String(globalThis.__c_err || "").trim();
+      if(!out && err) throw new Error(err);
+      return out;
+    },
     // Warm the light bundles ahead of a click (optional; loaders are idempotent).
     // aowlc.js (6 MB) is intentionally NOT preloaded — it loads on first C export.
     preload(){ tsBundle.load().catch(()=>{}); pyBundle.load().catch(()=>{}); jsBundle.load().catch(()=>{}); }

@@ -75,6 +75,19 @@ function ensureRunBundle(){
   return aowliRunPromise;
 }
 
+// The debugger bundle (webmain_dbg.nim): the tree-walker in dmStep mode, which
+// records EVERY statement's frame locals + call depth and parks the ordered
+// capture log on globalThis.__aowli_dbg as JSON. ~2 MB, loaded lazily on the
+// first Debug run only.
+let aowliDbgMain = null, aowliDbgPromise = null;
+function ensureDbgBundle(){
+  if(aowliDbgMain) return Promise.resolve();
+  if(!aowliDbgPromise)
+    aowliDbgPromise = loadText("aowli_dbg.js")
+      .then(txt=>{ aowliDbgMain = new Function(txt + "\nmain(0, []);"); });
+  return aowliDbgPromise;
+}
+
 function bytesToLatin1(buf){
   const u = new Uint8Array(buf); let s = "";
   for(let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
@@ -95,12 +108,19 @@ function bytesToLatin1(buf){
 // every subsequent nsCheck() throw too — the "it says unsupported and then never
 // finds errors again until I refresh" lockout. Rebuilding hands back a clean warm
 // scope (~750 ms once, off the UI thread) instead of a permanent dead worker.
+// nsCheckMultiFn: the multi-module entry (nsCheckMulti export), captured from the
+// warm boot alongside nsCheck. Null on an OLD nimsem bundle that predates it — in
+// which case the worker degrades to single-module checking (the active file only).
+let nsCheckMultiFn = null;
 function buildWarmSem(){
-  nsCheckFn = null;
+  nsCheckFn = null; nsCheckMultiFn = null;
   globalThis.__ns_assets = stdlibBlob;
   try{
-    (new Function(semJsText + "\n; globalThis.__nsCheckFn = nsCheck; main(0, []);"))();
+    (new Function(semJsText + "\n; globalThis.__nsCheckFn = nsCheck;" +
+      "\n; try{ globalThis.__nsCheckMultiFn = nsCheckMulti; }catch(_e){ globalThis.__nsCheckMultiFn = null; }" +
+      "\n main(0, []);"))();
     if(typeof globalThis.__nsCheckFn === "function") nsCheckFn = globalThis.__nsCheckFn;
+    if(typeof globalThis.__nsCheckMultiFn === "function") nsCheckMultiFn = globalThis.__nsCheckMultiFn;
   }catch(e){ /* boot threw — fall through to the fresh-scope path */ }
   if(!nsCheckFn && !semMain) semMain = new Function(semJsText + "\nmain(0, []);");
 }
@@ -280,10 +300,59 @@ function semCompileAowl(pnif){
   return { snif, diags, cached:false };
 }
 
+// --- multi-module (workspace) semcheck: nimsem only ---------------------------
+// `multi` = { mainpath, paths (\n-joined project roots), modules (framed
+// "<path>\t<len>\n<pnif>" of ALL user modules) }. Resolves cross-file /
+// cross-project imports against the preloaded user .p.nif set, with the stdlib
+// still served from the pre-checked .s.nif closure. Falls back to single-module
+// on an old bundle (no nsCheckMultiFn) or a poisoned instance.
+function semFreshMulti(multi){
+  globalThis.__ns_mainpath = String(multi.mainpath || "");
+  globalThis.__ns_paths    = String(multi.paths || "");
+  globalThis.__ns_modules  = String(multi.modules || "");
+  globalThis.__ns_assets   = stdlibBlob;
+  globalThis.__ns_out = ""; globalThis.__ns_diag = ""; globalThis.__aowli_out = "";
+  try{
+    nsCheckMultiFn();
+  }catch(e){
+    const diags = parseDiags(globalThis.__ns_diag);
+    buildWarmSem();  // recover a clean instance
+    if(diags.length) return { snif:"", diags };
+    // No located diagnostic — the multi-module path failed internally (an
+    // unsupported cross-module construct, not a real type error in the user's
+    // code). Return EMPTY (no snif, no diags) so runSem falls back to the proven
+    // single-module check of the active file rather than showing a spurious
+    // "workspace semcheck failed" banner.
+    return { snif:"", diags:[] };
+  }
+  return { snif: globalThis.__ns_out || "", diags: parseDiags(globalThis.__ns_diag) };
+}
+function semCompileMulti(multi){
+  const key = "multi\0" + (multi.mainpath||"") + "\0" + (multi.modules||"");
+  const hit = cacheGet(key);
+  if(hit) return { snif:hit.snif, diags:hit.diags, cached:true };
+  const res = semFreshMulti(multi);
+  cachePut(key, { snif:res.snif, diags:res.diags });
+  return { snif:res.snif, diags:res.diags, cached:false };
+}
+
 // Route the semcheck stage to the selected engine: "aowl" -> aowlsem (experimental),
-// anything else -> nimsem (the default). Both return { snif, diags, cached }.
-async function runSem(pnif, semEngine){
+// anything else -> nimsem (the default). A `multi` payload (workspace with >1 user
+// module) uses the multi-module nimsem path when the bundle supports it. Both
+// return { snif, diags, cached }.
+async function runSem(pnif, semEngine, multi){
   if(semEngine === "aowl"){ await ensureAowlsem(); return semCompileAowl(pnif); }
+  if(multi && multi.modules && nsCheckMultiFn){
+    const r = semCompileMulti(multi);
+    // Graceful degradation: the browser multi-module path can fail internally on
+    // some projects (returning an empty .s.nif with no located diagnostic). Rather
+    // than surface a spurious "did not type-check" for the whole project, fall back
+    // to single-module checking of the ACTIVE file (msg.pnif) — the proven path —
+    // so multi-file projects behave at least as well as before. Real type errors
+    // (a non-empty diags list) are kept and shown.
+    if(r.snif || (r.diags && r.diags.length)) return r;
+    return semCompile(pnif);
+  }
   return semCompile(pnif);
 }
 
@@ -382,7 +451,7 @@ function runByEngine(snif, stdin, engine){
 //     so normal runs stay on the VM; this only fires when the "Run" NIF tab is open.
 async function handleRunRung(msg, id){
   try{
-    const { snif, diags } = await runSem(msg.pnif, msg.semEngine);
+    const { snif, diags } = await runSem(msg.pnif, msg.semEngine, msg.multi);
     if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", runnif:"", diags }); return; }
     await ensureRunBundle();
     resetAowliGlobals(snif, msg.stdin);
@@ -394,6 +463,39 @@ async function handleRunRung(msg, id){
     }
     self.postMessage({ id, ok:true, snif, runnif: globalThis.__aowli_runnif || "",
                        exitCode, stderr: (globalThis.__aowli_err||"") + err, diags });
+  }catch(e){
+    self.postMessage({ id, ok:false, message: String(e && e.message || e) });
+  }
+}
+
+// --- debug: semcheck (cached) + run the dmStep capture engine, returning the
+//     ordered step log the browser debugger replays as a time-travel session.
+async function handleDebug(msg, id){
+  try{
+    const { snif, diags } = await runSem(msg.pnif, msg.semEngine, msg.multi);
+    if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", steps:[], diags }); return; }
+    await ensureDbgBundle();
+    globalThis.__aowli_in  = msg.stdin || "";
+    globalThis.__aowli_src = snif;
+    globalThis.__aowli_out = "";
+    globalThis.__aowli_err = "";
+    globalThis.__aowli_exit = 0;
+    globalThis.__aowli_dbg = "";
+    let parsed = { steps:[], out:"", err:"", exit:0, truncated:false };
+    try{
+      aowliDbgMain();
+      parsed = JSON.parse(globalThis.__aowli_dbg || "{}");
+    }catch(e){
+      // A crash mid-run still leaves whatever was captured on __aowli_dbg; try to
+      // surface it, else report the runtime error.
+      try{ parsed = JSON.parse(globalThis.__aowli_dbg || "{}"); }catch(_){}
+      parsed.err = (parsed.err||"") + "runtime error: " + (e && e.message || e);
+    }
+    self.postMessage({ id, ok:true, snif,
+      steps: parsed.steps || [], truncated: !!parsed.truncated,
+      stdout: parsed.out || globalThis.__aowli_out || "",
+      stderr: parsed.err || globalThis.__aowli_err || "",
+      exitCode: (parsed.exit|0), diags });
   }catch(e){
     self.postMessage({ id, ok:false, message: String(e && e.message || e) });
   }
@@ -415,9 +517,10 @@ self.onmessage = (ev) => {
   }
   try{
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
+    if(msg.type === "debug"){ handleDebug(msg, id); return; }
     if(msg.type === "sem"){
       // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental, lazy).
-      runSem(msg.pnif, msg.semEngine).then(({ snif, diags, cached })=>{
+      runSem(msg.pnif, msg.semEngine, msg.multi).then(({ snif, diags, cached })=>{
         self.postMessage({ id, ok:true, snif, diags, cached });
       }).catch(e=> self.postMessage({ id, ok:false, error:String(e && e.message || e) }));
       return;
@@ -428,7 +531,7 @@ self.onmessage = (ev) => {
       // semEngine picks which checker produces the .s.nif that aowli then runs;
       // if aowlsem couldn't check it (empty snif), the ranSem path below reports
       // its diagnostics instead of trying to run nothing.
-      runSem(msg.pnif, msg.semEngine).then(({ snif, diags })=>{
+      runSem(msg.pnif, msg.semEngine, msg.multi).then(({ snif, diags })=>{
         if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
         const res = runByEngine(snif, msg.stdin, engine);
         res.diags = diags;

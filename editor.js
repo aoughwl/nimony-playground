@@ -106,6 +106,44 @@
         mstring:[[/[^"]+/,"string"],[/"""/,"string","@pop"],[/"/,"string"]],
       }
     });
+    // ---- NIF / AIF (the compiler's intermediate form): s-expression syntax ----
+    // (tag@lineinfo  arg  arg  (nested …))  ·  (.directive …)  ·  `.` = empty slot.
+    monaco.languages.register({ id:"nif" });
+    monaco.languages.setLanguageConfiguration("nif", {
+      brackets:[["(",")"],["[","]"]],
+      autoClosingPairs:[{open:"(",close:")"},{open:"[",close:"]"},{open:'"',close:'"'}],
+    });
+    monaco.languages.setMonarchTokensProvider("nif", {
+      tokenizer:{
+        root:[
+          [/\(\s*\./, { token:"delimiter.parenthesis", next:"@directive" }],   // (.nif27 (.vendor
+          [/\(/,      { token:"delimiter.parenthesis", next:"@tag" }],          // (stmts (let (call
+          [/\)/,      "delimiter.parenthesis"],
+          { include:"@common" },
+        ],
+        // the head token right after "(" is the node's TAG
+        tag:[
+          [/[A-Za-z_][\w]*/, { token:"type", next:"@pop" }],
+          ["", { token:"", next:"@pop" }],
+        ],
+        directive:[
+          [/[A-Za-z_][\w]*/, { token:"keyword", next:"@pop" }],
+          ["", { token:"", next:"@pop" }],
+        ],
+        common:[
+          [/@[-,0-9A-Za-z._\/\\]+/, "comment"],        // @4 / @,1,file.nim  → line info (muted)
+          [/"/, { token:"string", next:"@string" }],
+          [/\b\d+\.\d+([eE][-+]?\d+)?\b/, "number.float"],
+          [/\b0x[0-9a-fA-F]+\b/, "number.hex"],
+          [/\b\d[\d_]*\b/, "number"],
+          [/\.(?=[\s()])/, "comment"],                  // lone "." = empty slot
+          [/[A-Za-z_][A-Za-z0-9_.]*/, "identifier"],    // symbols (name.suffix)
+          [/[+\-*\/<>=~&%|!?^:]+/, "operator"],
+        ],
+        string:[[/[^"]+/,"string"],[/"/,{ token:"string", next:"@pop" }]],
+      }
+    });
+
     monaco.editor.defineTheme("nimony-dark",{ base:"vs-dark", inherit:true, rules:[], colors:{ "editor.background":"#0f1115" } });
     monaco.editor.defineTheme("nimony-light",{ base:"vs", inherit:true, rules:[], colors:{ "editor.background":"#ffffff" } });
     // "true dark" — matches the aoughwl docs site's dark scheme (near-black).
@@ -218,6 +256,10 @@
             else if(mq.addListener) mq.addListener(applyWrap);
           }catch(_){}
           editor.onDidChangeModelContent(scheduleImportDecos);   // keep import underlines fresh
+          // Ctrl/Cmd+Enter runs — as a first-class Monaco command so it fires even
+          // while the editor is focused (Monaco otherwise swallows the keystroke).
+          editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+            ()=>{ if(runFn) runFn(); else if(window.AowliRun) window.AowliRun(); });
           computeImportDecos();
           wireZoom();
           fireReady();
@@ -227,9 +269,26 @@
     document.head.appendChild(s);
   }
 
+  let runFn = null;
   window.AowliEditor = {
     setValue(v){ if(usingFallback) fallbackEl.value=v; else if(editor) editor.setValue(v); },
+    // index.html hands us run() so the Ctrl/Cmd+Enter Monaco command can call it.
+    bindRun(fn){ runFn = fn; },
     getValue(){ return usingFallback ? fallbackEl.value : (editor ? editor.getValue() : ""); },
+    // Multi-file support (workspace.js): flip the active model read-only (std /
+    // cloned-repo files) and switch its syntax language for non-nimony files.
+    setReadOnly(on){
+      if(usingFallback){ if(fallbackEl) fallbackEl.readOnly = !!on; return; }
+      if(editor) editor.updateOptions({ readOnly: !!on });
+    },
+    setLanguage(lang){
+      if(usingFallback || !monacoRef || !editor) return;
+      const model = editor.getModel(); if(!model) return;
+      // map our simple ids onto Monaco's; unknown -> nimony grammar
+      const known = { nimony:"nimony", markdown:"markdown", json:"json",
+                      javascript:"javascript", c:"c", nif:"nif", plaintext:"plaintext" };
+      try{ monacoRef.editor.setModelLanguage(model, known[lang] || "nimony"); }catch(_){}
+    },
     setTheme(t){ if(!usingFallback && monacoRef) monacoRef.editor.setTheme(monacoTheme(t)); },
     // Monaco renders 0-height while its container is display:none (the source pane
     // now hides the editor behind NIF tabs); call this when the Source tab is shown
