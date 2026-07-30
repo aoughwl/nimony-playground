@@ -77,6 +77,20 @@
   // Parses every user .nim/.aowl in the open non-std projects to its .p.nif,
   // caching by content so unchanged files aren't re-parsed each run. `mainAbs` is
   // the active file's virtual absolute path (its buffer is the live `source`).
+  const _enc = (typeof TextEncoder !== "undefined") ? new TextEncoder() : null;
+  function utf8Len(s){
+    if(_enc) return _enc.encode(s).length;
+    let n = 0;                       // fallback: count UTF-8 bytes by hand
+    for(let i = 0; i < s.length; i++){
+      const c = s.codePointAt(i);
+      if(c > 0xFFFF){ n += 4; i++; }
+      else if(c > 0x7FF) n += 3;
+      else if(c > 0x7F) n += 2;
+      else n += 1;
+    }
+    return n;
+  }
+
   const _pnifCache = new Map();   // content -> pnif
   function parseCached(src, file){
     const key = file + "\0" + src;
@@ -136,11 +150,19 @@
     // simply not part of this compilation. (order already holds just the closure.)
     // Frame every source (dependency order) as "<path>\t<len>\n<pnif>"; the ACTIVE
     // file uses the live (unsaved) buffer so an in-flight edit is what gets checked.
+    // The length MUST be counted in UTF-8 BYTES, not JS code units: the worker
+    // hands this string to nimsem, whose (nim_js) strings are UTF-8 byte arrays,
+    // and its frame parser walks it byte by byte. A single non-ASCII character
+    // anywhere in a module (an em-dash in a comment, box-drawing in a doc
+    // string) makes a `.length` frame desync — every later record is read from
+    // the wrong offset, nimsem sees garbage modules, and the whole workspace
+    // check silently degraded to "this program uses a module or feature not yet
+    // supported in the browser sandbox".
     let modules = "";
     for(const abs of order){
       const pnif = parseCached(contentOf(abs), abs);
       if(!pnif) continue;
-      modules += abs + "\t" + pnif.length + "\n" + pnif;
+      modules += abs + "\t" + utf8Len(pnif) + "\n" + pnif;
     }
     return { mainpath: mainAbs, paths: W.searchPaths().join("\n"), modules };
   }
@@ -173,7 +195,12 @@
       const msg = (m.diags && m.diags.length)
         ? m.diags.map(d=>"  "+d.line+":"+d.col+"  "+d.message).join("\n")
         : "the program did not type-check.";
-      return { stdout:"", stderr:"semantic error:\n"+msg, exitCode:1, diags:m.diags||[] };
+      // If the WORKSPACE (multi-module) check is what actually failed, say why —
+      // the single-module fallback that produced `msg` can only ever report a
+      // generic "not supported", which is a dead end for the user.
+      const why = m.multiCrash ? "\n  workspace check: " + m.multiCrash : "";
+      return { stdout:"", stderr:"semantic error:\n"+msg+why, exitCode:1, diags:m.diags||[],
+               multiCrash:m.multiCrash||"" };
     }
     return { stdout:m.stdout||"", stderr:m.stderr||"", exitCode:m.exitCode|0, diags:m.diags||[], engine:m.engine, oom:!!m.oom, fellBack:!!m.fellBack, fallbackReason:m.fallbackReason||"" };
   }

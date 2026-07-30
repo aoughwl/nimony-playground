@@ -1,0 +1,10 @@
+original: [42, 7, 13, 99, 1, 56, 23, 8, 77, 34, 2, 65]
+ascending: [1, 2, 7, 8, 13, 23, 34, 42, 56, 65, 77, 99]
+descending: [99, 77, 65, 56, 42, 34, 23, 13, 8, 7, 2, 1]
+search 1 -> index 0
+search 23 -> index 5
+search 99 -> index 11
+search 100 -> index -1
+search 8 -> index 3
+search 5 -> index -1
+isSorted=true

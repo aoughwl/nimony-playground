@@ -1,0 +1,14 @@
+word frequencies:
+  cat = 2
+  dog = 3
+  log = 1
+  mat = 1
+  on = 2
+  ran = 1
+  sat = 2
+  the = 5
+unique words: 8
+intersection: 3 ->
+  dog
+  fish
+  the

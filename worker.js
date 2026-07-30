@@ -203,6 +203,7 @@ function cacheGet(k){ if(!cache.has(k)) return null; const v=cache.get(k); cache
 function cachePut(k,v){ cache.set(k,v); while(cache.size>CACHE_MAX) cache.delete(cache.keys().next().value); }
 
 function semFresh(pnif, allowRetry){
+  semUsed = true;
   globalThis.__ns_main   = String(pnif);
   globalThis.__ns_assets = stdlibBlob;
   globalThis.__ns_out    = "";
@@ -219,7 +220,7 @@ function semFresh(pnif, allowRetry){
     // retry the check ONCE on the clean instance so this edit still gets real
     // errors instead of the generic fallback.
     if(nsCheckFn){
-      buildWarmSem();
+      buildWarmSem(); semUsed = false;
       if(!diags.length && allowRetry !== false) return semFresh(pnif, false);
     }
     if(diags.length) return { snif:"", diags };
@@ -307,33 +308,101 @@ function semCompileAowl(pnif){
 // still served from the pre-checked .s.nif closure. Falls back to single-module
 // on an old bundle (no nsCheckMultiFn) or a poisoned instance.
 function semFreshMulti(multi){
+  freshenSem();                // never sem against a previous run's user modules
   globalThis.__ns_mainpath = String(multi.mainpath || "");
   globalThis.__ns_paths    = String(multi.paths || "");
   globalThis.__ns_modules  = String(multi.modules || "");
   globalThis.__ns_assets   = stdlibBlob;
   globalThis.__ns_out = ""; globalThis.__ns_diag = ""; globalThis.__aowli_out = "";
+  globalThis.__aowli_err = ""; globalThis.__ns_mods = ""; globalThis.__ns_multifail = "";
+  globalThis.__ns_trace = ""; globalThis.__ns_vfslog = "";
   try{
     nsCheckMultiFn();
   }catch(e){
     const diags = parseDiags(globalThis.__ns_diag);
-    buildWarmSem();  // recover a clean instance
-    if(diags.length) return { snif:"", diags };
+    // nimsem's own stdout (assertion / "cannot open" text) — the ONLY clue when a
+    // multi-module check dies without producing a located diagnostic. Keep it so
+    // the caller can report something honest instead of the generic banner.
+    const crash = (String(globalThis.__aowli_out || "") + "\n"
+                 + String(globalThis.__aowli_err || "") + "\n"
+                 + String(globalThis.__ns_vfslog || "") + "\n"
+                 + String(e && e.message || e)).trim();
+    buildWarmSem(); semUsed = false;   // recover a clean instance
+    if(diags.length) return { snif:"", diags, crash };
     // No located diagnostic — the multi-module path failed internally (an
     // unsupported cross-module construct, not a real type error in the user's
     // code). Return EMPTY (no snif, no diags) so runSem falls back to the proven
     // single-module check of the active file rather than showing a spurious
     // "workspace semcheck failed" banner.
-    return { snif:"", diags:[] };
+    return { snif:"", diags:[], crash };
   }
-  return { snif: globalThis.__ns_out || "", diags: parseDiags(globalThis.__ns_diag) };
+  // `mods` = the DEPENDENCY modules' .s.nif, framed for aowli's in-memory VFS
+  // (see webvfs.loadWebModules). An old nimsem bundle leaves it undefined, in
+  // which case cross-module runs behave exactly as before.
+  semUsed = true;
+  scheduleFreshenSem();
+  const snif = globalThis.__ns_out || "";
+  const diags = parseDiags(globalThis.__ns_diag);
+  // Modules nimsem could not produce ANY output for. These are internal failures
+  // (an unsupported construct or a module it cannot resolve), not type errors, so
+  // they carry no location — but naming the FILE beats the old behaviour, which
+  // silently degraded to a single-module check of the active file and reported
+  // "this program uses a module or feature not yet supported in the browser
+  // sandbox" with no hint about which file was at fault.
+  const failed = String(globalThis.__ns_multifail || "").split("\n").filter(Boolean);
+  if(!snif && !diags.length && failed.length)
+    return { snif:"", mods:"", diags: failed.map(p => ({ line:0, col:0, severity:"error",
+      message: "could not check module " + (p.split("/").pop() || p)
+             + " — it uses something the browser sandbox does not support yet" })) };
+  return { snif, diags, mods: globalThis.__ns_mods || "" };
+}
+// --- warm-instance hygiene for MULTI-module checks ---------------------------
+// The warm nimsem instance exists so consecutive checks reuse the loaded stdlib
+// graph. That reuse is safe for the stdlib (it never changes) but NOT for USER
+// modules: `prog.mods` (and the symbol state hanging off it) keeps what a
+// multi-module check loaded, so a SECOND multi check whose modules changed sems
+// against the previous revision and dies with no located diagnostic — "works the
+// first time, then every later edit says 'not supported in the browser sandbox'".
+// Native `nimony c` never sees this: one module per process.
+//
+// So a multi-module check leaves the instance DIRTY, and the next check rebuilds
+// before running. The rebuild (~1 s: re-boot the bundle, reload the stdlib
+// closure) is also kicked off as a task right after the result is returned, so it
+// normally happens while the user is still typing rather than in their next Run.
+// `semUsed` = this instance has already compiled a user module. Consecutive
+// SINGLE-module checks on a used instance are fine (that is the warm model, and
+// it is what makes live checking ~20 ms); what is NOT safe is a MULTI-module
+// check, which loads a user module as a DEPENDENCY and bakes its interface into
+// state `forgetModule` alone does not reach.
+let semUsed = false;
+function freshenSem(){
+  if(!semUsed) return;
+  semUsed = false;
+  buildWarmSem();
+}
+function scheduleFreshenSem(){
+  // Pre-warm a clean instance while the user is still typing, so the NEXT
+  // multi-module check usually finds one ready instead of paying the rebuild.
+  setTimeout(freshenSem, 0);
+}
+
+// Last multi-module internal failure text (nimsem's stdout), surfaced on the run
+// result so a workspace that silently degrades to single-module checking can say
+// WHY instead of showing the generic "not supported in the browser sandbox".
+let lastMultiCrash = "";
+// The one line of nimsem's failure output that actually names the problem.
+function firstUsefulLine(crash){
+  const lines = String(crash || "").split("\n").map(l => l.trim()).filter(Boolean);
+  const named = lines.find(l => /no such file|cannot open|cannot find|assertion/i.test(l));
+  return (named || lines[0] || "").replace(/^memvfs: /, "").slice(0, 200);
 }
 function semCompileMulti(multi){
   const key = "multi\0" + (multi.mainpath||"") + "\0" + (multi.modules||"");
   const hit = cacheGet(key);
-  if(hit) return { snif:hit.snif, diags:hit.diags, cached:true };
+  if(hit) return { snif:hit.snif, diags:hit.diags, mods:hit.mods||"", crash:hit.crash||"", cached:true };
   const res = semFreshMulti(multi);
-  cachePut(key, { snif:res.snif, diags:res.diags });
-  return { snif:res.snif, diags:res.diags, cached:false };
+  cachePut(key, { snif:res.snif, diags:res.diags, mods:res.mods, crash:res.crash });
+  return { snif:res.snif, diags:res.diags, mods:res.mods||"", crash:res.crash||"", cached:false };
 }
 
 // Route the semcheck stage to the selected engine: "aowl" -> aowlsem (experimental),
@@ -344,6 +413,10 @@ async function runSem(pnif, semEngine, multi){
   if(semEngine === "aowl"){ await ensureAowlsem(); return semCompileAowl(pnif); }
   if(multi && multi.modules && nsCheckMultiFn){
     const r = semCompileMulti(multi);
+    // Keep WHY the workspace check failed: the single-module fallback below can
+    // only ever produce a generic message, and "could not find module X" is the
+    // difference between an actionable report and a dead end.
+    lastMultiCrash = firstUsefulLine(r.crash);
     // Graceful degradation: the browser multi-module path can fail internally on
     // some projects (returning an empty .s.nif with no located diagnostic). Rather
     // than surface a spurious "did not type-check" for the whole project, fall back
@@ -360,9 +433,13 @@ async function runSem(pnif, semEngine, multi){
 // Both engines read the same __aowli_* input globals and park their result on
 // the same output globals; a run is a fresh scope, so state never carries over.
 // All three aowli bundles (tree-walker, VM, run-rung) speak __aowli_*.
-function resetAowliGlobals(snif, stdin){
+function resetAowliGlobals(snif, stdin, mods){
   globalThis.__aowli_in  = stdin || "";
   globalThis.__aowli_src = snif;
+  // Dependency modules for a multi-file project, framed "<name>\t<len>\n<bytes>".
+  // aowli preloads them into its in-memory VFS so `programs.load` can resolve a
+  // cross-module symbol instead of reaching for posix `open` (absent in JS).
+  globalThis.__aowli_mods = mods || "";
   globalThis.__aowli_out = "";
   globalThis.__aowli_err = "";
   globalThis.__aowli_exit = 0;
@@ -383,13 +460,13 @@ function isMemoryError(e){
   return !!e && (e.name === "RangeError" ||
     /bounds of the DataView|out of bounds|Array buffer allocation/i.test(String(e.message || e)));
 }
-function runSnif(snif, stdin, forceTree){
+function runSnif(snif, stdin, forceTree, mods){
   // Engine selection: "tree" runs ONLY the tree-walker (the reference engine);
   // otherwise run the bytecode VM and, if it can't run this program in the
   // browser host (on-demand symbol load -> vfs open throws, or a quit surfaces
   // via the exit shim), fall back to the always-correct tree-walker. Where the
   // VM succeeds its output is identical to the tree-walker's.
-  resetAowliGlobals(snif, stdin);
+  resetAowliGlobals(snif, stdin, mods);
   if(forceTree){ aowliMain(); return collectAowli("tree"); }
   try{
     aowliVmMain();
@@ -398,7 +475,7 @@ function runSnif(snif, stdin, forceTree){
     // Out of memory is a genuine runtime limit, not a "the VM can't compile this"
     // signal — the tree-walker shares the same fixed heap and would just OOM too.
     if(isMemoryError(e)){ e.__oom = true; throw e; }
-    resetAowliGlobals(snif, stdin);
+    resetAowliGlobals(snif, stdin, mods);
     aowliMain();
     return collectAowli("tree");
   }
@@ -412,9 +489,9 @@ const OOM_TEXT = "out of memory: this program allocated more than the in-browser
 
 // Run a semchecked program on a aowli engine (tree or vm) and return a result
 // object, translating an exit()/OOM/crash into stdout+stderr+exitCode.
-function runAowliResult(snif, stdin, forceTree){
+function runAowliResult(snif, stdin, forceTree, mods){
   try{
-    return runSnif(snif, stdin, forceTree);
+    return runSnif(snif, stdin, forceTree, mods);
   }catch(e){
     const base = globalThis.__aowli_err || "";
     const eng = forceTree ? "tree" : "vm";
@@ -435,15 +512,15 @@ function nifjsFallbackReason(e){
 // Dispatch a run to the requested engine: "tree" | "vm" | "nifjs". nifjs
 // transpiles to native JS; on any unsupported node it falls back to the VM (then
 // tree), annotating the result with why.
-function runByEngine(snif, stdin, engine){
+function runByEngine(snif, stdin, engine, mods){
   if(engine === "nifjs"){
     if(nifjsApi){
       try{ return { stdout: nifjsApi.run(snif), stderr:"", exitCode:0, engine:"nifjs" }; }
-      catch(e){ const r = runAowliResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = nifjsFallbackReason(e); return r; }
+      catch(e){ const r = runAowliResult(snif, stdin, false, mods); r.fellBack = true; r.fallbackReason = nifjsFallbackReason(e); return r; }
     }
-    const r = runAowliResult(snif, stdin, false); r.fellBack = true; r.fallbackReason = "nifjs unavailable"; return r;
+    const r = runAowliResult(snif, stdin, false, mods); r.fellBack = true; r.fallbackReason = "nifjs unavailable"; return r;
   }
-  return runAowliResult(snif, stdin, engine === "tree");
+  return runAowliResult(snif, stdin, engine === "tree", mods);
 }
 
 // --- run rung: semcheck (cached) + run the TREE-WALKER with the emitter on, and
@@ -451,10 +528,10 @@ function runByEngine(snif, stdin, engine){
 //     so normal runs stay on the VM; this only fires when the "Run" NIF tab is open.
 async function handleRunRung(msg, id){
   try{
-    const { snif, diags } = await runSem(msg.pnif, msg.semEngine, msg.multi);
+    const { snif, diags, mods } = await runSem(msg.pnif, msg.semEngine, msg.multi);
     if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", runnif:"", diags }); return; }
     await ensureRunBundle();
-    resetAowliGlobals(snif, msg.stdin);
+    resetAowliGlobals(snif, msg.stdin, mods);
     let exitCode = 0, err = "";
     try{ aowliRunMain(); exitCode = globalThis.__aowli_exit | 0; }
     catch(e){
@@ -472,11 +549,12 @@ async function handleRunRung(msg, id){
 //     ordered step log the browser debugger replays as a time-travel session.
 async function handleDebug(msg, id){
   try{
-    const { snif, diags } = await runSem(msg.pnif, msg.semEngine, msg.multi);
+    const { snif, diags, mods } = await runSem(msg.pnif, msg.semEngine, msg.multi);
     if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", steps:[], diags }); return; }
     await ensureDbgBundle();
     globalThis.__aowli_in  = msg.stdin || "";
     globalThis.__aowli_src = snif;
+    globalThis.__aowli_mods = mods || "";
     globalThis.__aowli_out = "";
     globalThis.__aowli_err = "";
     globalThis.__aowli_exit = 0;
@@ -531,10 +609,11 @@ self.onmessage = (ev) => {
       // semEngine picks which checker produces the .s.nif that aowli then runs;
       // if aowlsem couldn't check it (empty snif), the ranSem path below reports
       // its diagnostics instead of trying to run nothing.
-      runSem(msg.pnif, msg.semEngine, msg.multi).then(({ snif, diags })=>{
-        if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags }); return; }
-        const res = runByEngine(snif, msg.stdin, engine);
+      runSem(msg.pnif, msg.semEngine, msg.multi).then(({ snif, diags, mods })=>{
+        if(!snif){ self.postMessage({ id, ok:true, ranSem:true, snif:"", diags, multiCrash:lastMultiCrash||"" }); return; }
+        const res = runByEngine(snif, msg.stdin, engine, mods);
         res.diags = diags;
+        if(lastMultiCrash) res.multiCrash = lastMultiCrash;
         self.postMessage(Object.assign({ id, ok:true }, res));
       }).catch(e=> self.postMessage({ id, ok:false, error:String(e && e.message || e) }));
       return;

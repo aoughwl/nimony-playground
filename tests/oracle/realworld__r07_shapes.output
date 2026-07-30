@@ -1,0 +1,6 @@
+shape c1 area=75
+shape r1 area=12
+shape s1 area=36
+shape c2 area=12
+total area=135
+square dispatch area=100

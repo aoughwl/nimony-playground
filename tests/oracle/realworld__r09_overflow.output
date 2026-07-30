@@ -1,0 +1,12 @@
+high+1 overflow: true
+low-1 overflow: true
+1+1 overflow: false
+small*small overflow: false
+mid*mid overflow: false
+uint max+1 = 0
+uint 0-1 = true
+and=8
+or=14
+xor=6
+shl=256
+shr=16

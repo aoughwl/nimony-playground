@@ -1,0 +1,10 @@
+count=5
+joined=[alpha|Beta|gamma|DELTA|eps]
+upper=ALPHA,BETA,GAMMA,DELTA,EPS
+lower=alpha,beta,gamma,delta,eps
+sum=155
+startsWith the=true
+endsWith fox=true
+replace=the slow brown fox
+repeat=ababab
+find brown=10
