@@ -3,7 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>nimony playground — runs in your browser</title>
+<title>Nimony Playground — Run Nimony Live in Your Browser | aoughwl</title>
+<meta name="description" content="The Nimony playground: write, type-check, and run Nimony code live in your browser — a full in-browser demo of the self-hosted Nimony toolchain (parser, semantic checker, interpreter). No install, no server, and it also transpiles to JavaScript, TypeScript, Python and C.">
+<meta name="keywords" content="nimony, nimony playground, nimony online, nimony live, nimony web demo, run nimony in browser, nimony interpreter, nimony compiler, aoughwl, nim language playground, online nim compiler">
+<meta name="robots" content="index, follow">
+<meta name="author" content="aoughwl">
+<link rel="canonical" href="https://aoughwl.github.io/playground/">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="shortcut icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -12,11 +17,30 @@
 <meta name="apple-mobile-web-app-title" content="aoughwl playground">
 <meta name="theme-color" content="#0a0a0b">
 <meta property="og:type" content="website">
-<meta property="og:title" content="aoughwl playground — runs in your browser">
-<meta property="og:description" content="Run the self-hosted Nimony toolchain entirely in your browser — parse, check, and execute, no install.">
+<meta property="og:url" content="https://aoughwl.github.io/playground/">
+<meta property="og:site_name" content="aoughwl">
+<meta property="og:title" content="Nimony Playground — Run Nimony Live in Your Browser">
+<meta property="og:description" content="Write, type-check and run Nimony code live in your browser. A full in-browser demo of the self-hosted Nimony toolchain — parser, checker, interpreter — plus JS/TS/Python/C export. No install, no server.">
 <meta property="og:image" content="https://aoughwl.github.io/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Nimony Playground — Run Nimony Live in Your Browser">
+<meta name="twitter:description" content="A live, in-browser Nimony playground — parse, type-check, run, and transpile Nimony with no install and no server.">
 <meta name="twitter:image" content="https://aoughwl.github.io/og-image.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Nimony Playground",
+  "alternateName": "aoughwl playground",
+  "url": "https://aoughwl.github.io/playground/",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any (runs in a web browser)",
+  "browserRequirements": "Requires JavaScript. Runs entirely client-side.",
+  "description": "A live, in-browser Nimony playground: write, type-check and run Nimony code with no install and no server. Runs the self-hosted Nimony toolchain — parser, semantic checker and interpreter — compiled to JavaScript, and transpiles to JavaScript, TypeScript, Python and C.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Organization", "name": "aoughwl", "url": "https://aoughwl.github.io/" }
+}
+</script>
 <script>
 // Resolve the theme BEFORE first paint (no flash). Precedence:
 //   1. an explicit playground choice (np-theme: light | dark | black)
@@ -559,57 +583,86 @@
   .cfg-lint input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex:none}
   .cfg-lint code{font-family:var(--mono);font-size:11px;color:var(--muted)}
 
-  /* ---- responsive / mobile ---- */
+  /* ============================ responsive / mobile ============================
+     Mobile is a distinct, tight mode: the editor is the hero and the explorer,
+     console and compile-stages ("layers") bar all start COLLAPSED (see the
+     mobile-defaults init in JS) — the inverse of the desktop layout. */
   /* narrow: stack the panes, drop the manual gutter — but keep the solo collapse
      working (don't let the forced flex re-expand a hidden output). */
   @media(max-width:700px){
     main{flex-direction:column!important}
-    /* editor fills; output sits at the bottom at ~30vh by default */
+    /* editor fills; the console sheet (when opened) sits at the bottom */
     main>.pane.src{flex:1 1 auto!important;min-height:0}
-    main>.pane.out{flex:0 0 30vh!important;min-height:0}
+    main>.pane.out{flex:0 0 44vh!important;min-height:0}
     main.out-hidden>.pane.src{flex:1 1 auto!important}
     main.out-hidden>.pane.out{flex:0 0 0!important;opacity:0}
     main>#gutter{display:none}
     #orientBtn{display:none}   /* stacked-only on mobile — side-by-side toggle is moot */
   }
-  /* phone: keep the logo, shrink the whole bar to fit one row */
+  /* phone header: a tight, CRISP segmented bar — no floating pills, no rounded
+     Run. The brand grows to fill; the action segment stays flush at the right and
+     only WRAPS to its own row when the width genuinely can't hold both. */
   @media(max-width:600px){
-    header{min-height:40px;flex-wrap:nowrap;align-items:center}
-    .brand{padding-left:11px;gap:8px;flex:0 0 auto}      /* natural size — never grow or squish */
-    .brand .logo{width:76px;height:18px;flex:0 0 auto}   /* the wordmark keeps its width */
+    header{min-height:40px;flex-wrap:wrap;align-items:stretch}
+    .brand{padding-left:11px;gap:8px;flex:1 1 auto;align-items:center;min-height:40px}
+    .brand .logo{width:74px;height:18px;flex:0 0 auto}
     .brand h1{font-size:13px}
     .statusline{display:none}           /* declutter — status lives in the panes */
-    .pane .label{padding:7px 12px}
-    footer{padding:8px 12px;font-size:11px}
-    footer > span:not(.badge):not(#perf):not(.fkeep){display:none}
-    /* header stays ONE clean row: brand · [share][theme][config][Run]. Every
-       other control moved into the Config panel, so the bar is roomy now. */
-    .actions{flex:0 0 auto;align-items:center;gap:4px;padding-right:6px}
+    .spacer{display:none}               /* the brand grows to take the slack instead */
+    .pane .label{padding:6px 10px;min-height:0}
+    /* action bar: segmented + square, mirroring the desktop chrome. Buttons keep
+       their dividers and never round — a wrap drops the whole segment to row 2. */
+    .actions{flex:0 0 auto;margin-left:auto;align-items:stretch;height:40px;gap:0;padding:0}
     .actions button svg{width:15px;height:15px}
-    .actions button:not(.run){width:34px;height:34px;padding:0;justify-content:center;border-left:0;border-radius:7px}
-    .actions button.run{height:34px;border-left:0;border-radius:8px;padding:0 15px;margin-left:2px}
+    .actions button:not(.run){width:40px;padding:0;justify-content:center;
+      border-left:1px solid var(--border);border-radius:0}
+    .actions button.run{border-radius:0;border-left:1px solid var(--border);
+      padding:0 16px;margin:0;font-weight:650}
     .actions button.run kbd{display:none}
     /* Config panel becomes a full-screen sheet on phones */
     .cfg-panel{width:100%;border-left:0}
     .cfg-lints{grid-template-columns:1fr}
-    /* segmented control (Source·Parsed·Typed·Run and the Export targets): wrap and
-       drop the .aif/meta line onto its OWN row instead of truncating it. */
+    /* export/stage segmented control: wrap the .aif/meta line onto its OWN row. */
     .exportbar{flex-wrap:wrap;gap:6px 8px}
     .exportbar .exspacer{display:none}
     .exportbar .exseg{order:1;flex-wrap:wrap}
     .exportbar .exmeta{order:9;flex:1 1 100%;margin-left:0;max-width:none;
                        white-space:normal;overflow:visible}
     #exCopy,#exDl{display:none}                                     /* declutter — remove Copy/Download */
+    /* ---- compile-stages ("layers") label bar: one tight, horizontally
+       scrollable strip of chips instead of a cramped, clipped block ---- */
+    .pane.src .label{padding:5px 8px;gap:8px;flex-wrap:nowrap;
+      overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none}
+    .pane.src .label::-webkit-scrollbar{display:none}
+    #srcTabs{flex:none}
+    #srcTabs button{padding:3px 8px;font-size:10.5px}
+    .pane.src #stageSeg button,.pane.src #exportTargets button{padding:3px 8px;font-size:10.5px}
+    /* ---- footer: tighter, smaller type ---- */
+    footer{padding:4px 10px;font-size:10px;gap:10px;min-height:0}
+    footer .badge{font-size:10px}
+    footer .footsel{font-size:10px;font-weight:600;padding:1px 14px 1px 2px}
+    footer > span:not(.badge):not(#perf):not(.fkeep){display:none}
+    /* ---- explorer: drop the folder glyph so the header tools never overflow;
+       the panel is a full-height overlay (position:absolute set at 640px) ---- */
+    #explorerDock .dock-title svg{display:none}
+    #explorerDock .dock-head{padding:0 6px 0 12px}
   }
   /* when the SOURCE PANE (not the viewport) is narrow — whether on a phone or
      because the split gutter shrank the editor — keep the tab bar on ONE line and
-     never let it wrap onto a second row. */
+     let it scroll horizontally rather than wrap onto a second row. */
   @container srcpane (max-width:460px){
-    .pane.src .label{flex-wrap:nowrap;overflow:hidden}
-    #srcTabs{min-width:0}
+    .pane.src .label{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}
+    #srcTabs{min-width:0;flex:none}
   }
   /* very narrow: keep the logo mark, drop the wordmark text */
   @media(max-width:430px){ .brand h1{display:none} }
+  /* under ~420px the explorer opens FULL-WIDTH over the editor (with a dimming
+     scrim); its ✕ closes it completely (fx-hidden → display:none). */
+  @media(max-width:420px){
+    #explorerDock{flex-basis:100%!important;width:100%!important;max-width:100%!important;left:0;right:0}
+    #workbench:not(.fx-hidden)::after{content:"";position:fixed;inset:40px 0 0 0;
+      background:rgba(0,0,0,.4);z-index:39;pointer-events:none}
+  }
 </style>
 </head>
 <body>
@@ -1904,6 +1957,11 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     window.AowliConsoleToggle = ()=>{ hidden=!hidden; apply(); if(!hidden) selectTab("out"); };
     window.AowliConsoleVisible = ()=> !hidden;
     window.AowliConsoleSyncBtn = ()=>{ const cbtn=$("#consoleTabBtn"); if(cbtn) cbtn.classList.toggle("on", !hidden); };
+    // Mobile-first default: collapse the console WITHOUT persisting (a returning
+    // desktop session keeps its own saved layout). Run reopens it via ensureOutputVisible.
+    window.AowliConsoleDefaultHide = ()=>{ hidden=true; main.setAttribute("data-layout",orient);
+      main.classList.add("out-hidden"); showOut.classList.add("show");
+      const c=$("#consoleTabBtn"); if(c) c.classList.remove("on"); };
     // Escape hides the output — even from inside Monaco. Capture phase so it
     // beats Monaco's own key handling; but yield to Monaco's popups (suggest /
     // parameter hints / find / rename) so their Escape still dismisses them
@@ -2152,12 +2210,18 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
         if(window.AowliEditor && window.AowliEditor.relayout) window.AowliEditor.relayout(); }
       window.AowliStagesToggle = ()=>{ hidden=!hidden; try{ localStorage.setItem(KEY, hidden?"1":"0"); }catch(_){} apply(); };
       window.AowliStagesSyncBtn = apply;
+      // Mobile-first default: collapse the compile-stages ("layers") bar without
+      // persisting (apply() itself never writes; only the toggle does).
+      window.AowliStagesDefaultHide = ()=>{ hidden=true; apply(); };
       apply();
     })();
     // Exposed so the file-tab-row buttons (explorer.js) can drive the panels.
     window.AowliExplorerToggle = toggleHide;
     window.AowliExplorerVisible = () => !!(wb && !wb.classList.contains("fx-hidden"));
     window.AowliExplorerSyncBtn = syncExplorerBtn;
+    // Mobile-first default: collapse the explorer without persisting (toggleHide
+    // is what writes np-fx-hidden; this only adds the class + syncs the button).
+    window.AowliExplorerDefaultHide = ()=>{ if(wb) wb.classList.add("fx-hidden"); syncExplorerBtn(); relayoutEditor(); };
     const hb=$("#fxDockHide"); if(hb) hb.addEventListener("click", toggleHide);
     const sb=$("#fxDockSide"); if(sb) sb.addEventListener("click", toggleSide);
     syncExplorerBtn();
@@ -2330,6 +2394,22 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     }catch(_){}
     window.AowliOpts.lintStyle=[...enabled].join(",");
     reflectChecks(); syncPresetLabel();
+  })();
+
+  // ---- Mobile-first layout defaults -----------------------------------------
+  // On a phone the editor is the hero: the explorer, console and compile-stages
+  // ("layers") bar all START collapsed — the inverse of desktop. Applies only
+  // when the user has no saved preference for that panel (a returning session's
+  // explicit choice still wins) and never persists, so desktop is untouched.
+  // Reopen any panel from the file-tab row (Explorer / Console / Stages).
+  (function(){
+    try{
+      if(!window.matchMedia || !matchMedia("(max-width:700px)").matches) return;
+      const noPref = k => { try{ return localStorage.getItem(k)==null; }catch(_){ return true; } };
+      if(noPref("np-fx-hidden") && window.AowliExplorerDefaultHide) window.AowliExplorerDefaultHide();
+      if(noPref("np-stages-hidden") && window.AowliStagesDefaultHide) window.AowliStagesDefaultHide();
+      if(noPref("np-hidden") && noPref("np-layout") && window.AowliConsoleDefaultHide) window.AowliConsoleDefaultHide();
+    }catch(_){}
   })();
 })();
 </script>
