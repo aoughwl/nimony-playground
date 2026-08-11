@@ -20,7 +20,7 @@ and runs client-side:
 ```
 your source
    │
-   ▼  nifparser  (aoughwl/nifparser — a browser-capable Nim→NIF parser)
+   ▼  aowlparser (aoughwl/aowlparser — a browser-capable Nim→NIF parser)
  .p.nif                                            [main thread, ~4 ms]
    │
    ▼  nimsem     (nimony's semantic checker)
@@ -33,9 +33,12 @@ your source
  output in the tab
 ```
 
-- **nifparser** replaces classic Nim's `nifler` (which is native-only and can't
+- **aowlparser** replaces classic Nim's `nifler` (which is native-only and can't
   run in a browser). It parses your source to the untyped `.p.nif` on the main
-  thread, which also feeds the live editor intelligence.
+  thread, which also feeds the live editor intelligence. The repo is
+  `aoughwl/aowlparser`; the bundle here is still named `nifparser.js`, along with
+  its cache keys, because renaming a shipped asset breaks every cached client —
+  the FILE name is legacy, the TOOL is aowlparser.
 - **nimsem** turns the `.p.nif` into a typed `.s.nif`, resolving every symbol,
   overload, and type. It runs in a Web Worker and reuses a warm, pre-loaded
   stdlib closure, so each check after the first is milliseconds.
@@ -51,7 +54,7 @@ one spun up from HTTP-cached bundles).
 
 ## Features
 
-- **Live diagnostics** — syntax (nifparser) and semantic (nimsem) errors as you
+- **Live diagnostics** — syntax (aowlparser) and semantic (nimsem) errors as you
   type, with editor squiggles and a problems list.
 - **Editor intelligence** — hover types, `⌃Space` completion, `F12` go-to-def,
   an outline/Symbols panel — a nimony LSP running in a Web Worker.
