@@ -1,24 +1,25 @@
-// sem.js — the client-side SEMANTIC-CHECK seam (now a thin worker client).
+// sem.js — the client-side SEMANTIC-CHECK seam (a thin worker client).
 //
-// nimsem (nimony's semantic checker, ~8.9 MB compiled to JS) turns an UNTYPED
-// `.p.nif` into a TYPED `.s.nif`. It used to run inline on the main thread, which
-// froze the editor for the duration of every live semcheck. It now runs in the
-// Web Worker owned by pipeline.js (see worker.js) — the input-level incremental
-// cache and the pre-semchecked stdlib closure live over there too. This file is
-// only the promise-returning facade the rest of the playground still calls as
+// A checker turns an UNTYPED `.p.nif` into a TYPED `.s.nif`. Two are shipped:
+// aowlsem (aoughwl's, the DEFAULT) and nimsem (nimony's own, the reference and
+// the multi-file-workspace path). Both run in the Web Worker owned by
+// pipeline.js (see worker.js) — the input-level incremental cache and each
+// checker's pre-semchecked stdlib live over there too; on the main thread a
+// semcheck would freeze the editor for its whole duration. This file is only the
+// promise-returning facade the rest of the playground calls as
 // `window.AowliSem.compile`.
 (function(){
   const sem = { ready:false, compile:null };
   let hits = 0, misses = 0, warm = 0;
 
-  // Which semantic checker to use: "nim" (nimsem, default) or "aowl" (aowlsem,
-  // experimental). Callers may pass it explicitly; otherwise we follow the global
+  // Which semantic checker to use: "aowl" (aowlsem, the DEFAULT) or "nim"
+  // (nimsem). Callers may pass it explicitly; otherwise we follow the global
   // toggle the UI flips (window.AowliOpts.sem), mirroring how the parser follows
   // window.AowliOpts.curly.
   function semEngine(explicit){
     if(explicit === "nim" || explicit === "aowl") return explicit;
     const g = (window.AowliOpts && window.AowliOpts.sem);
-    return g === "aowl" ? "aowl" : "nim";
+    return g === "nim" ? "nim" : "aowl";
   }
 
   // pnif: the `.p.nif` string. `eng` (optional) overrides the global sem toggle.
@@ -29,8 +30,14 @@
   sem.compile = function(pnif, eng, src){
     if(!(window.AowliPipe && window.AowliPipe.ready))
       return Promise.reject(new Error("nimsem not loaded yet"));
-    const engine = semEngine(eng);
-    const multi = (engine === "nim" && window.__aowliBuildMulti && src != null) ? window.__aowliBuildMulti(src) : null;
+    let engine = semEngine(eng);
+    // buildMulti returns null for a single-module session, so a non-null payload
+    // IS a real workspace. aowlsem checks one module at a time and has no
+    // cross-file import resolution, so a workspace falls back to nimsem rather
+    // than reporting every sibling symbol as undeclared. Single-file sessions —
+    // which is nearly all of them — keep the default checker.
+    const multi = (window.__aowliBuildMulti && src != null) ? window.__aowliBuildMulti(src) : null;
+    if(multi && multi.modules && engine !== "nim") engine = "nim";
     return window.AowliPipe.sem(pnif, engine, multi).then(m => {
       if(m.cached) hits++; else { misses++; warm = Math.min(warm + 1, 8); }
       return { snif:m.snif, diags:m.diags || [], cached:!!m.cached };

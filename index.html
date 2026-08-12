@@ -836,8 +836,8 @@
           <div class="cfg-lbl">Checker<span class="cfg-hint">.p.aif → .s.aif (types &amp; symbols)</span></div>
           <div class="cfg-ctl">
             <select id="semSel" aria-label="Semantic checker">
-              <option value="nim">nimsem</option>
-              <option value="aowl">aowlsem — WIP, avoid</option>
+              <option value="aowl">aowlsem</option>
+              <option value="nim">nimsem — reference</option>
             </select>
           </div>
         </div>
@@ -860,10 +860,14 @@
             </select>
           </div>
         </div>
-        <p class="cfg-note" id="semExpNote" hidden><span id="semExp" class="expTag">avoid</span>
-          <strong>aowlsem is a work in progress — don't rely on it.</strong> The from-scratch
-          checker is incomplete: many programs won't type-check or will report spurious
-          “undeclared” diagnostics. Keep <code>nimsem</code> selected for real use.</p>
+        <p class="cfg-note" id="semExpNote" hidden><span id="semExp" class="expTag">default</span>
+          <strong>aowlsem checks one module against a shipped std surface.</strong>
+          <code>system</code>, <code>syncio</code>, <code>math</code>, <code>strutils</code>,
+          <code>tables</code>, <code>sets</code>, <code>sequtils</code>, <code>algorithm</code>,
+          <code>options</code>, <code>times</code>, <code>random</code> and friends are
+          pre-checked and shipped with the playground; anything outside that set reports
+          “undeclared”. A multi-file workspace still resolves its cross-file imports
+          through <code>nimsem</code>.</p>
       </section>
 
       <section class="cfg-sec">
@@ -1632,19 +1636,18 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
   if(footEngineSel) footEngineSel.addEventListener("change",()=> setEngine(footEngineSel.value, true));
   paintEngine();
 
-  // ---- semantic-checker picker: "nim" (nimsem, default) | "aowl" (aowlsem,
-  //      experimental) (persisted). The choice lives on window.AowliOpts.sem, which
-  //      sem.js / engine.js read to route the semcheck stage in the worker. When
-  //      aowl is active we show the "experimental" tag and re-check the buffer so
-  //      the switch is immediate. ----
+  // ---- semantic-checker picker: "aowl" (aowlsem, the DEFAULT) | "nim" (nimsem)
+  //      (persisted). The choice lives on window.AowliOpts.sem, which sem.js /
+  //      engine.js read to route the semcheck stage in the worker. Switching
+  //      re-checks the buffer so the change is immediate. ----
   const semSel = $("#semSel"), semExp = $("#semExp");
-  let semMode = "nim";
+  let semMode = "aowl";
   try{ const s = localStorage.getItem("np-sem"); if(s==="nim"||s==="aowl") semMode = s; }catch(_){}
   window.AowliOpts.sem = semMode;
   semSel.value = semMode;
   const SEM_DESC = {
-    nim:  "nimsem — nimony's full semantic checker: resolves every symbol, overload and type against the bundled std library. The default.",
-    aowl: "aowlsem (experimental) — a system-less alternative checker. It type-checks builtin arithmetic / if / case / while, but has no std `system` module, so programs using string, seq or echo report honest “undeclared identifier” diagnostics."
+    nim:  "nimsem \u2014 nimony's own semantic checker, kept as the reference implementation. Also the checker for multi-file workspaces, which resolve cross-file imports.",
+    aowl: "aowlsem \u2014 the aoughwl semantic checker, and the default. It checks against a pre-checked std surface (system, syncio, math, strutils, tables, \u2026) shipped with the playground; a module outside that set reports an honest \u201Cundeclared identifier\u201D."
   };
   const semExpNote = $("#semExpNote");
   function paintSem(){

@@ -29,6 +29,7 @@
       Promise.all(APP_SCRIPTS.map(txt)),
       Promise.all(BUNDLES.map(txt)),
       buf("assets/nimsem-stdlib.bin"),
+      buf("assets/aowlsem-mods.bin").catch(function(){ return null; }),
       buf("../assets/aoughwl-logo-white.png"),
       buf("/favicon.ico").catch(function(){ return null; })
     ]).then(function(r){
@@ -38,8 +39,9 @@
       return {
         indexHtml: indexHtml, scripts: scripts, bundles: bundles,
         stdlibB64: bufToB64(r[3]),
-        logoB64: bufToB64(r[4]),
-        faviconB64: r[5] ? bufToB64(r[5]) : null
+        modsB64: r[4] ? bufToB64(r[4]) : null,
+        logoB64: bufToB64(r[5]),
+        faviconB64: r[6] ? bufToB64(r[6]) : null
       };
     });
   }

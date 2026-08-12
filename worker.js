@@ -50,17 +50,100 @@
 //   So the VM is the FAST PATH and the tree-walker is the always-correct
 //   fallback (see runSnif).
 let semMain = null, aowliMain = null, aowliVmMain = null, stdlibBlob = null, nsCheckFn = null, semJsText = null;
-// aowlsem (the experimental AOWL semantic checker) bundle text. Unlike nimsem it
+// aowlsem (the AOWL semantic checker) bundle text. Unlike nimsem it
 // has NO warm-closure model, so we keep only the source and evaluate a fresh
 // `new Function` per check (exactly like the main-thread parser). Best-effort:
 // null if the bundle isn't in this build, in which case the aowl path degrades to
 // a clean "unavailable" diagnostic rather than throwing.
 let asJsText = null, asJsPromise = null;
-// aowlsem (experimental) loads on demand — first "aowl" semantics check only.
+// aowlsem is the DEFAULT checker; boot prefetches it, and this is the guard that
+// makes a check wait for the fetch rather than race it.
 function ensureAowlsem(){
   if(asJsText) return Promise.resolve(asJsText);
   if(!asJsPromise) asJsPromise = loadText("aowlsem.js").catch(()=>null).then(t=>(asJsText=t, t));
   return asJsPromise;
+}
+
+// --- aowlsem's pre-semchecked stdlib -----------------------------------------
+// aowlsem has no stdlib of its own and no warm closure: it is handed
+// already-semchecked modules per check, exactly as the native harnesses hand
+// them to the CLI with `--sys:`/`--imp:`. `assets/aowlsem-mods.bin` carries
+// system + the std surface the playground offers, built by
+// `aowlsem-js/mods_build.sh`, in LENGTH-framed records
+//   <suffix>\t<modname>\t<dep-suffix,…>\t<bytelen>\n<bytes>
+// ⚠️ A .s.nif is NOT text: system.s.nif contains a raw 0xFF, so `fetch().text()`
+// would replace it with U+FFFD and hand aowlsem a corrupted module. We read the
+// asset as BYTES and hold it LATIN1 (one char per byte), which keeps `bytelen`
+// true for JS slicing; aowlsem's webmain decodes latin1 back to bytes on arrival,
+// because a JS string crosses that boundary UTF-8-encoded (`_te.encode`,
+// nimony-web runtime.js).
+let asMods = null, asModsByName = null, asModsPromise = null;
+function loadLatin1(name){
+  // Offline single-file build: the asset rides in base64 (a file:// worker can't
+  // fetch siblings), and atob already yields one char per byte — which IS latin1.
+  if(__assets && __assets.modsB64 != null)
+    return Promise.resolve(atob(__assets.modsB64));
+  return fetch(name)
+    .then(r=>{ if(!r.ok) throw new Error(name+" HTTP "+r.status); return r.arrayBuffer(); })
+    .then(bytesToLatin1);
+}
+function parseModFrames(txt){
+  const bySuffix = new Map(), byName = new Map();
+  let i = 0;
+  while(i < txt.length){
+    const nl = txt.indexOf("\n", i);
+    if(nl < 0) break;
+    const h = txt.slice(i, nl).split("\t");
+    if(h.length !== 4) break;
+    const n = parseInt(h[3], 10);
+    if(!(n > 0) || nl + 1 + n > txt.length) break;
+    bySuffix.set(h[0], { name:h[1], deps: h[2] ? h[2].split(",") : [], body: txt.substr(nl + 1, n) });
+    byName.set(h[1], h[0]);
+    i = nl + 1 + n;
+  }
+  return { bySuffix, byName };
+}
+function ensureAowlsemMods(){
+  if(asMods) return Promise.resolve();
+  if(!asModsPromise)
+    asModsPromise = loadLatin1("assets/aowlsem-mods.bin")
+      .then(t=>{ const p = parseModFrames(t); asMods = p.bySuffix; asModsByName = p.byName; })
+      // A missing asset degrades to system-less checking (honest "undeclared"
+      // diagnostics), never to a throw.
+      .catch(()=>{ asMods = new Map(); asModsByName = new Map(); });
+  return asModsPromise;
+}
+// Which shipped modules does THIS program need? Loading all 20 would cost ~2.4 MB
+// of NIF parsing on every keystroke-check, so scan the `.p.nif`'s import nodes
+// (`(import (infix / std syncio))`) for identifiers naming a shipped module, then
+// close over each module's own recorded dependencies — a re-exported symbol is
+// only reachable if its module is loaded too.
+function selectAowlModules(pnif){
+  const sysSuffix = asModsByName.get("system") || "";
+  const want = new Set();
+  const re = /\((?:import|importexcept|from)\b/g;
+  let m;
+  while((m = re.exec(pnif))){
+    let depth = 0, end = pnif.length;
+    for(let i = m.index; i < pnif.length; i++){
+      const c = pnif[i];
+      if(c === "(") depth++;
+      else if(c === ")" && --depth === 0){ end = i; break; }
+    }
+    for(const t of (pnif.slice(m.index, end).match(/[A-Za-z_][A-Za-z0-9_]*/g) || [])){
+      const s = asModsByName.get(t);
+      if(s) want.add(s);
+    }
+  }
+  const out = new Set();
+  const visit = s => {
+    if(!s || out.has(s) || !asMods.has(s)) return;
+    out.add(s);
+    for(const d of asMods.get(s).deps) visit(d);
+  };
+  want.forEach(visit);
+  out.delete(sysSuffix);            // system travels on __as_sys, not __as_imps
+  return { sysSuffix, imps: Array.from(out) };
 }
 // The run-rung bundle (webmain_run.nim): the tree-walker with the run emitter ON,
 // which also parks the serialized execution on globalThis.__aowli_runnif. It's an
@@ -155,9 +238,11 @@ async function boot(){
     loadText("nimsem.js"), loadText("aowli.js"), loadText("aowli_vm.js"), loadStdlibBytes(),
     loadText("nifjs.js").catch(()=>null)         // best-effort; fast path falls back if absent
   ]);
-  // NOTE: aowlsem.js (2.65 MB, experimental) is deliberately NOT fetched here — it
-  // loads lazily on the first "aowl" semantics check (ensureAowlsem), so the
-  // default nim boot doesn't pay for a bundle most sessions never touch.
+  // aowlsem is the DEFAULT checker, so its bundle and its pre-semchecked stdlib
+  // are prefetched here — fire-and-forget, deliberately NOT awaited: readiness is
+  // still nimsem's warm closure, and gating boot on another ~14 MB would make the
+  // editor wait for bytes the first check will wait for anyway.
+  ensureAowlsem(); ensureAowlsemMods();
   stdlibBlob = bytesToLatin1(asset);
   semJsText = semJs;
   // aowli: compile once; each run gets a fresh scope (fresh linear memory) — cheap
@@ -249,15 +334,15 @@ function semCompile(pnif){
   return { snif:res.snif, diags:res.diags, cached:false };
 }
 
-// --- aowlsem: the EXPERIMENTAL alternative semantic checker -------------------
+// --- aowlsem: the DEFAULT semantic checker ------------------------------------
 // Contract (a JS mirror of aowlsem's webmain, parallel to the parser's): set
-// globalThis.__as_pnif = the .p.nif, invoke a FRESH `new Function` (aowlsem has no
-// warm-closure model — every check re-runs module init), then read __as_snif (the
-// typed .s.nif, "" on failure) and __as_diag (a JSON array). aowlsem is system-less
-// in the browser: it type-checks builtin arithmetic/if/case/while but has NO
-// `system` module, so string/seq/echo programs yield honest "undeclared" diags and
-// an empty .s.nif. We normalize its diagnostics to the SAME shape nimsem's
-// parseDiags returns ({line, col, severity, message}) so the UI treats both alike.
+// globalThis.__as_pnif = the .p.nif, __as_sys/__as_syssuf = the pre-semchecked
+// `system` module and its suffix, __as_imps = the framed imported modules, then
+// invoke a FRESH `new Function` (aowlsem has no warm-closure model — every check
+// re-runs module init) and read __as_snif (the typed .s.nif, "" on failure) and
+// __as_diag (a JSON array). We normalize its diagnostics to the SAME shape
+// nimsem's parseDiags returns ({line, col, severity, message}) so the UI treats
+// both alike.
 function normalizeAowlDiags(raw){
   let arr = [];
   try{ arr = JSON.parse(raw || "[]"); }catch(_){ return []; }
@@ -277,11 +362,21 @@ function semCompileAowl(pnif){
   if(!asJsText)
     return { snif:"", cached:false,
              diags:[{ line:0, col:0, severity:"error",
-                      message:"aowlsem (experimental) is not available in this build" }] };
-  const key = "aowl\0" + pnif;
+                      message:"aowlsem is not available in this build" }] };
+  const sel = (asMods && asModsByName) ? selectAowlModules(pnif) : { sysSuffix:"", imps:[] };
+  const key = "aowl\0" + sel.imps.join(",") + "\0" + pnif;
   const hit = cacheGet(key);
   if(hit) return { snif:hit.snif, diags:hit.diags, cached:true };
   globalThis.__as_pnif = pnif;
+  // system + the imported modules, pre-semchecked. The SUFFIX matters as much as
+  // the bytes: a .s.nif elides its own module suffix on every symbol it defines,
+  // so the reader re-appends the name we pass here.
+  globalThis.__as_sys = sel.sysSuffix ? asMods.get(sel.sysSuffix).body : "";
+  globalThis.__as_syssuf = sel.sysSuffix;
+  globalThis.__as_imps = sel.imps.map(s => {
+    const mod = asMods.get(s);
+    return s + "\t" + mod.name + "\t" + mod.body.length + "\n" + mod.body;   // latin1: 1 char == 1 byte
+  }).join("");
   globalThis.__as_snif = "";
   globalThis.__as_diag = "[]";
   let snif = "", diags = [];
@@ -294,7 +389,7 @@ function semCompileAowl(pnif){
     // otherwise a single honest "couldn't check" note (never crash the worker).
     diags = normalizeAowlDiags(globalThis.__as_diag);
     if(!diags.length) diags = [{ line:0, col:0, severity:"error",
-      message:"aowlsem (experimental) could not check this program: " + (e && e.message || e) }];
+      message:"aowlsem could not check this program: " + (e && e.message || e) }];
     snif = "";
   }
   cachePut(key, { snif, diags });
@@ -405,12 +500,12 @@ function semCompileMulti(multi){
   return { snif:res.snif, diags:res.diags, mods:res.mods||"", crash:res.crash||"", cached:false };
 }
 
-// Route the semcheck stage to the selected engine: "aowl" -> aowlsem (experimental),
-// anything else -> nimsem (the default). A `multi` payload (workspace with >1 user
+// Route the semcheck stage to the selected engine: "nim" -> nimsem,
+// anything else -> aowlsem (the default). A `multi` payload (workspace with >1 user
 // module) uses the multi-module nimsem path when the bundle supports it. Both
 // return { snif, diags, cached }.
 async function runSem(pnif, semEngine, multi){
-  if(semEngine === "aowl"){ await ensureAowlsem(); return semCompileAowl(pnif); }
+  if(semEngine !== "nim"){ await ensureAowlsem(); await ensureAowlsemMods(); return semCompileAowl(pnif); }
   if(multi && multi.modules && nsCheckMultiFn){
     const r = semCompileMulti(multi);
     // Keep WHY the workspace check failed: the single-module fallback below can
@@ -597,7 +692,7 @@ self.onmessage = (ev) => {
     if(msg.type === "runrung"){ handleRunRung(msg, id); return; }
     if(msg.type === "debug"){ handleDebug(msg, id); return; }
     if(msg.type === "sem"){
-      // semEngine: "nim" (nimsem, default) | "aowl" (aowlsem, experimental, lazy).
+      // semEngine: "aowl" (aowlsem, the default) | "nim" (nimsem).
       runSem(msg.pnif, msg.semEngine, msg.multi).then(({ snif, diags, cached })=>{
         self.postMessage({ id, ok:true, snif, diags, cached });
       }).catch(e=> self.postMessage({ id, ok:false, error:String(e && e.message || e) }));

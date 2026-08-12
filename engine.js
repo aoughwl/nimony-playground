@@ -185,11 +185,12 @@
       return { stdout:"", stderr:"syntax error: "+synDiags[0].message+" (line "+synDiags[0].line+")", exitCode:1 };
     // 2+3. semcheck (worker, cached) + run (worker) on the chosen engine
     // ("tree" | "vm" | "nifjs"). nifjs falls back to aowli on unsupported nodes.
-    // The semcheck stage uses whichever checker the sem toggle selects; if aowlsem
-    // (experimental) is picked and can't produce a .s.nif, the ranSem branch below
-    // reports its diagnostics rather than trying to run an empty program.
-    const semEng = (window.AowliOpts && window.AowliOpts.sem === "aowl") ? "aowl" : "nim";
-    const multi = (semEng === "nim") ? buildMulti(source) : null;
+    // The semcheck stage uses whichever checker the sem toggle selects (aowlsem by
+    // default); if it can't produce a .s.nif, the ranSem branch below reports its
+    // diagnostics rather than trying to run an empty program.
+    let semEng = (window.AowliOpts && window.AowliOpts.sem === "nim") ? "nim" : "aowl";
+    const multi = buildMulti(source);
+    if(multi && multi.modules) semEng = "nim";   // a workspace needs cross-file resolution (see sem.js)
     const m = await window.AowliPipe.run(nif, stdin, engine, semEng, multi);
     if(!m.snif && m.ranSem){
       const msg = (m.diags && m.diags.length)

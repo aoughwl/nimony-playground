@@ -25,6 +25,12 @@ const argv = Object.fromEntries(process.argv.slice(2).map(a => {
   const m = /^--([^=]+)(?:=(.*))?$/.exec(a); return m ? [m[1], m[2] ?? "1"] : [a, "1"];
 }));
 const ENGINE = argv.engine || "vm";
+// --sem=aowl|nim — which semantic checker the page should use. The page persists
+// the choice in localStorage ("np-sem"), so seeding it before navigation is what
+// picks the checker; with no flag the corpus runs against the page DEFAULT
+// (aowlsem). This exists so the two checkers can be diffed on one corpus —
+// without it, "N failing" says nothing about whether the switch caused them.
+const SEM = argv.sem || "";
 const FILTER = argv.filter ? new RegExp(argv.filter) : null;
 const PAGES = Math.max(1, parseInt(argv.pages || "4", 10));
 const TIMEOUT = parseInt(argv.timeout || "25000", 10);
@@ -92,6 +98,7 @@ async function runPage(browser, url, cases, results, progress) {
   async function fresh() {
     if (ctx) await ctx.close().catch(() => {});
     ctx = await browser.newContext();
+    if (SEM) await ctx.addInitScript(`try{localStorage.setItem("np-sem", ${JSON.stringify(SEM)});}catch(_){}`);
     page = await ctx.newPage();
     page.on("pageerror", e => consoleErrors.push("pageerror: " + e.message));
     page.on("console", m => { if (m.type() === "error") consoleErrors.push("console: " + m.text()); });

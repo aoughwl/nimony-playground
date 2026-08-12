@@ -41,6 +41,7 @@ const bundles = {}; for(const n of BUNDLES) bundles[n] = rd(n);
 const assets = {
   scripts, bundles,
   stdlibB64:  must(["assets/nimsem-stdlib.bin"], "nimsem stdlib blob"),
+  modsB64:    must(["assets/aowlsem-mods.bin"], "aowlsem pre-checked std modules"),
   logoB64:    must(["../assets/aoughwl-logo-white.png","assets/aoughwl-logo-white.png"], "aoughwl logo"),
   faviconB64: b64(["../favicon.ico","favicon.ico"])   // optional
 };

@@ -51,6 +51,7 @@
   //   scripts:   { "editor.js": "<source>", ... }   external <script src> files
   //   bundles:   { "worker.js": "<source>", "aowli.js": ... }  (see BUNDLE_IDS)
   //   stdlibB64: "<base64 of assets/nimsem-stdlib.bin>"
+  //   modsB64:   "<base64 of assets/aowlsem-mods.bin>" (aowlsem's pre-checked std)
   //   logoB64:   "<base64 of aoughwl-logo-white.png>"
   //   faviconB64:"<base64 of favicon.ico>"  (optional)
   // }
@@ -88,6 +89,7 @@
       blocks += textBlock(BUNDLE_IDS[name], bundles[name]);
     });
     blocks += textBlock("nifi-b-stdlib", assets.stdlibB64 || "");
+    blocks += textBlock("nifi-b-asmods", assets.modsB64 || "");
     var boot =
       '<script>window.__NIFI_INLINE=(function(){' +
       'function t(id){var e=document.getElementById(id);return e?e.textContent:null;}' +
@@ -99,7 +101,7 @@
         '"aowljs-export.js":t("nifi-b-aowljs"),"aowlc.js":t("nifi-b-aowlc"),' +
         '"aowllens.js":t("nifi-b-aowllens"),"aowllsp.js":t("nifi-b-aowllsp"),' +
         '"aowlsem.js":t("nifi-b-aowlsem"),"aowlsuggest.js":t("nifi-b-aowlsuggest")},' +
-      'stdlibB64:t("nifi-b-stdlib")};})();</scr' + 'ipt>\n';
+      'stdlibB64:t("nifi-b-stdlib"),modsB64:t("nifi-b-asmods")};})();</scr' + 'ipt>\n';
 
     var inject = "<head>" + blocks + boot;   // built once; function replacer avoids $-interpretation
     if(/<head>/i.test(html)) html = html.replace(/<head>/i, function(){ return inject; });

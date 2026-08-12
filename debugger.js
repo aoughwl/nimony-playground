@@ -185,9 +185,10 @@
       if(r.diags && r.diags.length){ setStatus("syntax error: "+r.diags[0].message+" (line "+r.diags[0].line+")","err"); running=false; setControlsEnabled(true); return; }
     }catch(e){ setStatus("parse failed: "+(e&&e.message||e),"err"); running=false; return; }
 
-    const semEng = (window.AowliOpts && window.AowliOpts.sem === "aowl") ? "aowl" : "nim";
+    let semEng = (window.AowliOpts && window.AowliOpts.sem === "nim") ? "nim" : "aowl";
     try{
-      const multi = (semEng === "nim" && window.__aowliBuildMulti) ? window.__aowliBuildMulti(src) : null;
+      const multi = window.__aowliBuildMulti ? window.__aowliBuildMulti(src) : null;
+      if(multi && multi.modules) semEng = "nim";   // a workspace needs cross-file resolution (see sem.js)
       const res = await window.AowliPipe.debug(nif, currentStdin(), semEng, multi);
       if(res.ranSem && !res.snif){
         const msg = (res.diags&&res.diags.length) ? res.diags.map(d=>d.line+":"+d.col+" "+d.message).join("; ") : "did not type-check";

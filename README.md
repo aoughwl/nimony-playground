@@ -23,8 +23,8 @@ your source
    ▼  aowlparser (aoughwl/aowlparser — a browser-capable Nim→NIF parser)
  .p.nif                                            [main thread, ~4 ms]
    │
-   ▼  nimsem     (nimony's semantic checker)
- .s.nif  (typed NIF)                               [Web Worker, warm-cached]
+   ▼  aowlsem    (aoughwl/aowlsem — the semantic checker; nimsem optional)
+ .s.nif  (typed NIF)                               [Web Worker, cached]
    │
    ▼  aowli      (aoughwl/aowli — a typed-NIF interpreter)
    │             bytecode VM (fast path) ─┐
@@ -39,23 +39,31 @@ your source
   `aoughwl/aowlparser`; the bundle here is still named `nifparser.js`, along with
   its cache keys, because renaming a shipped asset breaks every cached client —
   the FILE name is legacy, the TOOL is aowlparser.
-- **nimsem** turns the `.p.nif` into a typed `.s.nif`, resolving every symbol,
-  overload, and type. It runs in a Web Worker and reuses a warm, pre-loaded
-  stdlib closure, so each check after the first is milliseconds.
+- **aowlsem** turns the `.p.nif` into a typed `.s.nif`, resolving every symbol,
+  overload, and type. It is the **default** checker. It runs in a Web Worker
+  against a pre-semchecked std surface shipped as `assets/aowlsem-mods.bin`
+  (system, syncio, math, strutils, tables, sets, sequtils, algorithm, options,
+  times, random, hashes, bitops, deques, parseutils, unicode, …) — only the
+  modules a program actually imports are loaded, closed over each module's own
+  recorded dependencies.
+- **nimsem**, nimony's own checker, is still shipped and selectable in
+  ⚙ Config → Pipeline → Checker. It is the reference implementation, and a
+  **multi-file workspace routes to it automatically**: aowlsem checks one module
+  at a time and has no cross-file import resolution.
 - **aowli** runs the typed `.s.nif`. It tries a **bytecode VM** first (faster on
   compute) and falls back to an always-correct **tree-walker** for programs the
   VM can't yet run self-contained. Both share one in-memory linear heap.
 - **stdlib** ships as pre-compiled `.s.nif`/binary assets, so programs that
   `import std/…` a bundled module just work.
 
-Running nimsem + aowli in a Web Worker is what makes **Stop** work: a runaway loop
+Running the checker + aowli in a Web Worker is what makes **Stop** work: a runaway loop
 can't be interrupted cooperatively, but the worker can be terminated (and a fresh
 one spun up from HTTP-cached bundles).
 
 ## Features
 
-- **Live diagnostics** — syntax (aowlparser) and semantic (nimsem) errors as you
-  type, with editor squiggles and a problems list.
+- **Live diagnostics** — syntax (aowlparser) and semantic (aowlsem) errors as
+  you type, with editor squiggles and a problems list.
 - **Editor intelligence** — hover types, `⌃Space` completion, `F12` go-to-def,
   an outline/Symbols panel — a nimony LSP running in a Web Worker.
 - **Multi-level NIF inspector** — the source pane tabs between your **Source**
@@ -74,20 +82,23 @@ index.html      page shell, UI, and all hand-written glue
 editor.js       Monaco editor + nimony grammar (textarea fallback offline)
 lsp.js          in-browser nimony LSP (hover / completion / definition / outline)
 parser.js       nifparser seam (.p.nif on the main thread)
-sem.js          nimsem seam (facade over the worker)
+sem.js          semantic-check seam (facade over the worker)
 engine.js       compile-and-run seam (window.AowliEngine)
 pipeline.js     owns the Web Worker; sem / run / runrung / stop
-worker.js       the worker: nimsem + aowli (VM, tree-walker, run rung)
+worker.js       the worker: aowlsem / nimsem + aowli (VM, tree-walker, run rung)
 curlyconvert.js colon ⇄ curly source rewriter
 examples.js     the starter program
 exporters.js    Export TypeScript / Python seam (drives aowlts.js / aowlpy.js)
 exporters/      web entries for the exporters (compiled by build-exporters.sh)
 assets/snif/    pre-compiled .s.nif for examples
-assets/*.bin    pre-compiled stdlib closure for nimsem
+assets/nimsem-stdlib.bin   pre-compiled stdlib closure for nimsem
+assets/aowlsem-mods.bin    pre-semchecked std modules for aowlsem
+                           (built by aowlsem-js/mods_build.sh)
 
 # bundles produced by aoughwl/nimony-web's nim_js backend:
 nifparser.js    the parser            (~0.9 MB)
-nimsem.js       the semantic checker  (~8.9 MB)
+aowlsem.js      the semantic checker, DEFAULT (~12 MB, obfuscated build)
+nimsem.js       nimony's semantic checker, reference (~8.9 MB)
 aowli.js         interpreter, tree-walker
 aowli_vm.js      interpreter, bytecode VM (fast path)
 aowli_run.js     interpreter, tree-walker + run-rung emitter (lazy-loaded)
@@ -100,7 +111,7 @@ aowlpy.js       idiomatic-Python exporter   (aowlpy) (~1.5 MB)
 The source pane's **TypeScript** and **Python** tabs transpile the current
 program to idiomatic, hand-written-looking source — real TS/Python types and
 control flow, not linear memory — entirely client-side. They run the buffer
-through the same frontend the other tabs use (nifparser → nimsem → the typed
+through the same frontend the other tabs use (nifparser → aowlsem → the typed
 `.s.nif`) and hand that `.s.nif` to [`aowlts`](https://github.com/aoughwl/aowlts)
 / [`aowlpy`](https://github.com/aoughwl/aowlpy), nimony programs compiled to
 JavaScript by the very same `nim_js` backend that builds the parser/interpreter
