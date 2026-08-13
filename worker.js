@@ -39,6 +39,19 @@
       stderr:{ write:function(s){ g.__aowli_err=(g.__aowli_err||"")+toStr(s); return true; } },
       exit:function(code){ var e=new Error("process.exit("+(code||0)+")"); e.__isExit=true; throw e; }
     };
+  // See index.html's copy: `fpclassify` + the FP_* codes are missing from the
+  // bundles' embedded libm shim, and std/math's `classify` (hence every float
+  // literal) needs them. Glibc codes; matches the nimony-js runtime fix.
+  if(typeof g.fpclassify === "undefined"){
+    g.FP_NAN = 0; g.FP_INFINITE = 1; g.FP_ZERO = 2; g.FP_SUBNORMAL = 3; g.FP_NORMAL = 4;
+    g.fpclassify = function(x){
+      if(Number.isNaN(x)) return 0;
+      if(x === Infinity || x === -Infinity) return 1;
+      if(x === 0) return 2;                                   // covers -0
+      return Math.abs(x) < 2.2250738585072014e-308 ? 3 : 4;
+    };
+    g.fpclassifyf = g.fpclassify;
+  }
 })();
 
 // --- load + compile-once the bundles -----------------------------------------
@@ -355,6 +368,54 @@ function normalizeAowlDiags(raw){
     message: String(d.message || "").trim()
   }));
 }
+// --- aowlsem's modules, framed for aowli's VFS -------------------------------
+// aowlsem's .s.nif is NOT self-contained: it names its imports by suffix and
+// leaves their bodies out (nimsem's warm-closure output inlines them, which is
+// why the nimsem path never needed this). At RUN time aowli then resolves a
+// symbol like `add.0.seqs…`, calls programs.load "<suffix>", and reads
+// `/w/<suffix>.s.idx.nif` — a VFS miss returns "" and readIndex asserts
+// (webvfs.nim: "readIndex demands the (index) tag and asserts on anything else,
+// including on the empty string a VFS miss returns"). That surfaced as
+// `[Assertion Failure] expected 'index' tag` on stdout for EVERY program that
+// needed a routine body from another module: seq.add, tables, sets, strutils,
+// sequtils, options, closures, object variants, method dispatch, try/except…
+// Programs that only echo never load anything, which is why the sandbox looked
+// healthy.
+//
+// We already hold exactly those module bodies (`asMods`), so frame them the way
+// webvfs.loadWebModules wants: "<name>\t<len>\n<bytes>" repeated, where <name>
+// is the bare filename programs.suffixToNif will ask for and <len> counts the
+// body AS ESCAPED. Bytes >= 0x80 must travel as `\xHH` (a .s.nif is not text —
+// system.s.nif carries a raw 0xFF — and the JS→nim boundary would UTF-8 re-encode
+// it). The `.s.idx.nif` sidecar is read unconditionally by `load`, so each module
+// gets the same empty-index shape webvfs synthesizes for the main module: the
+// symbols come from the index EMBEDDED in the .s.nif, which is keyed by the same
+// expanded suffix because we name the file after that suffix.
+const EMPTY_IDX_NIF = "(.nif27)\n(index\n)\n";
+function escapeTransport(body){
+  // eslint-disable-next-line no-control-regex
+  return body.replace(/[-ÿ]/g,
+    c => "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
+}
+// EVERY shipped module, not just the ones the program imports. The import set is
+// the right scope for the CHECKER (it decides what is visible), but the wrong one
+// for the runtime: `import std/tables` pulls in bodies from hashes/strs/… that no
+// import statement names, and one missing body is an assert, not a degraded run.
+// Built once and reused — it is the same bytes for every program, so it is NOT
+// kept in the per-program LRU.
+let allModsFramed = null;
+function frameAowlModsForAowli(){
+  if(allModsFramed !== null) return allModsFramed;
+  if(!asMods){ return ""; }              // not cached: asMods may still be loading
+  let out = "";
+  const add = (name, body) => { out += name + "\t" + body.length + "\n" + body; };
+  for(const [suf, mod] of asMods){
+    add(suf + ".s.nif", escapeTransport(mod.body));
+    add(suf + ".s.idx.nif", EMPTY_IDX_NIF);
+  }
+  allModsFramed = out;
+  return out;
+}
 // Its own LRU key namespace (prefixed) so an aowl result never collides with the
 // nimsem cache keyed on the raw .p.nif.
 function semCompileAowl(pnif){
@@ -366,7 +427,7 @@ function semCompileAowl(pnif){
   const sel = (asMods && asModsByName) ? selectAowlModules(pnif) : { sysSuffix:"", imps:[] };
   const key = "aowl\0" + sel.imps.join(",") + "\0" + pnif;
   const hit = cacheGet(key);
-  if(hit) return { snif:hit.snif, diags:hit.diags, cached:true };
+  if(hit) return { snif:hit.snif, diags:hit.diags, mods: hit.snif ? frameAowlModsForAowli() : "", cached:true };
   globalThis.__as_pnif = pnif;
   // system + the imported modules, pre-semchecked. The SUFFIX matters as much as
   // the bytes: a .s.nif elides its own module suffix on every symbol it defines,
@@ -392,8 +453,12 @@ function semCompileAowl(pnif){
       message:"aowlsem could not check this program: " + (e && e.message || e) }];
     snif = "";
   }
+  // The same module set aowlsem checked against, framed for aowli's VFS so a run
+  // can resolve a symbol whose body lives in one of them (see
+  // frameAowlModsForAowli). Only worth building when there IS a program to run.
+  const mods = snif ? frameAowlModsForAowli() : "";
   cachePut(key, { snif, diags });
-  return { snif, diags, cached:false };
+  return { snif, diags, mods, cached:false };
 }
 
 // --- multi-module (workspace) semcheck: nimsem only ---------------------------
@@ -572,7 +637,14 @@ function runSnif(snif, stdin, forceTree, mods){
     if(isMemoryError(e)){ e.__oom = true; throw e; }
     resetAowliGlobals(snif, stdin, mods);
     aowliMain();
-    return collectAowli("tree");
+    // SAY SO. This used to return a bare "tree" result: the user picked the VM,
+    // got the tree-walker, and nothing recorded it — `fellBack` stayed false, so
+    // tests/run.mjs --engine=vm was silently measuring the tree-walker on the
+    // whole aowlsem path (where the VM threw on every program).
+    const r = collectAowli("tree");
+    r.fellBack = true;
+    r.fallbackReason = "vm: " + String(e && e.message || e).slice(0, 160);
+    return r;
   }
 }
 

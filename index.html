@@ -994,6 +994,22 @@
       stderr:{ write:function(s){ g.__aowli_err=(g.__aowli_err||"")+toStr(s); return true; } },
       exit:function(code){ var e=new Error("process.exit("+(code||0)+")"); e.__isExit=true; throw e; }
     };
+  // libm gap: the bundles' embedded runtime spells out most of <math.h> but
+  // deliberately skips `fpclassify` and the `FP_*` codes as "uncommon". They are
+  // not: std/math's `classify` importc's them, and nifbuilder's addFloatLit calls
+  // `classify` for EVERY float literal — so a bare `echo 8.0` died with
+  // "fpclassify is not defined" thrown out of the PARSER, with no diagnostic.
+  // These are the glibc codes, matching the runtime fix in nimony-js.
+  if(typeof g.fpclassify === "undefined"){
+    g.FP_NAN = 0; g.FP_INFINITE = 1; g.FP_ZERO = 2; g.FP_SUBNORMAL = 3; g.FP_NORMAL = 4;
+    g.fpclassify = function(x){
+      if(Number.isNaN(x)) return 0;
+      if(x === Infinity || x === -Infinity) return 1;
+      if(x === 0) return 2;                                   // covers -0
+      return Math.abs(x) < 2.2250738585072014e-308 ? 3 : 4;
+    };
+    g.fpclassifyf = g.fpclassify;
+  }
 })();
 // Shared client-side options — the curly-brace toggle lives here so parser.js /
 // engine.js pick it up without any coupling to the header UI. The `sem` field
