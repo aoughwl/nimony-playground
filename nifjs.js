@@ -332,6 +332,7 @@ function emitStmt(s){
       const c = emitCallLike(s);
       return c + ";";
     }
+    case "infix": case "prefix": return emitExpr(s) + ";";   // an operator call used as a statement (`s += i`)
     case "discard": return s.kids[0] && !(isAtom(s.kids[0]) && s.kids[0].atom===".") ? emitExpr(s.kids[0]) + ";" : ";";
     case "break": return "break;";
     case "continue": return "continue;";
@@ -637,6 +638,15 @@ function emitExpr(e){
     case "infix": {                           // generic infix as a call: (infix OP a b)
       const op = isAtom(e.kids[0]) ? opName(e.kids[0].atom) : "";
       if(op === "&") return "(" + emitExpr(e.kids[1]) + " + " + emitExpr(e.kids[2]) + ")";
+      // Compound assignment: `s += i` arrives as (infix +=.0.I… (haddr s) i), a call
+      // to system's `+=` instance written in infix form. Without it every loop that
+      // accumulates fell back to the fixed-heap interpreter and a plain
+      // `for i in 0 ..< 1000000: s += i` ran out of memory (measured 2026-10-09).
+      // `&=` is string/seq append, which JS spells `+=` on strings.
+      if(op === "+=" || op === "-=" || op === "*=" || op === "/=" || op === "&="){
+        const lv = emitLval(e.kids[1]);
+        return "(" + lv + " " + (op === "&=" ? "+=" : op) + " " + emitExpr(e.kids[2]) + ")";
+      }
       throw Unsupported("infix '" + op + "'");
     }
     case "paren": case "expr": return "(" + emitExpr(e.kids[e.kids.length-1]) + ")";

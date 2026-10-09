@@ -128,7 +128,7 @@
       '<div class="fx-dlg">' +
         '<h3>Clone a git repository</h3>' +
         '<p>Paste a public GitHub URL (or <code>owner/repo</code>). Files are fetched client-side and added as a project you can import from. A <code>/tree/branch/subdir</code> suffix clones just that subtree.</p>' +
-        '<div class="fx-field"><input type="text" id="gc-url" placeholder="https://github.com/aoughwl/aowllib" autocomplete="off" spellcheck="false"></div>' +
+        '<div class="fx-field"><input type="text" id="gc-url" placeholder="https://github.com/aoughwl/aowlrt" autocomplete="off" spellcheck="false"></div>' +
         '<div class="fx-dlgmsg" id="gc-msg"></div>' +
         '<div class="fx-dlgact"><button id="gc-cancel">Cancel</button><button id="gc-go" class="primary">Clone</button></div>' +
       '</div>';

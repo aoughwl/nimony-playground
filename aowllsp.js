@@ -28,7 +28,27 @@ let _brk = 8;                                   // offset 0 reserved as nil
 
 // `allocFixed(n)` is the codegen's own storage for value aggregates (a C-stack
 // model: never freed), distinct from the Nim heap that sits on `mmap` below.
-function allocFixed(n){ const p=(_brk+7)&~7; _brk=p+n; _u8.fill(0,p,p+n); return p; }
+// --- allocFixed grows the heap (tools/grow-fixed-arena.mjs) ---
+// WAS: function allocFixed(n){ const p=(_brk+7)&~7; _brk=p+n; _u8.fill(0,p,p+n); return p; }
+// ...which bumped past the end of a 256 MiB buffer without ever growing it. See
+// tools/grow-fixed-arena.mjs. Same doubling rule as `mmap`, and the same
+// ceiling; past that it raises, because a silent overwrite of someone else's
+// memory is the one outcome worse than an error.
+function allocFixed(n){
+  const p=(_brk+7)&~7, need=p+n;
+  if(need > _ab.byteLength){
+    if(!_ab.resizable || need > _HEAPMAX)
+      throw new RangeError("out of linear memory: allocFixed wanted " + need +
+        " bytes of the " + _HEAPMAX + "-byte arena. This is the codegen's value-aggregate " +
+        "arena, which is never freed, so a big enough input exhausts it however large it is.");
+    let want=_ab.byteLength;
+    while(want < need) want *= 2;
+    if(want > _HEAPMAX) want = _HEAPMAX;
+    _ab.resize(want);
+  }
+  _brk=need; _u8.fill(0,p,need); return p;
+}
+// --- end allocFixed grows the heap (tools/grow-fixed-arena.mjs) ---
 
 // Page primitives for `system/osalloc.nim`: `mmap` hands the Nim allocator a
 // page-aligned, zero-filled region carved from the same buffer (MAP_FAILED = -1

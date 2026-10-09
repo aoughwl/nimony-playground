@@ -80,6 +80,11 @@
   // (workspace) semcheck for cross-file / cross-project imports; ignored by an old
   // nimsem bundle that lacks the entry.
   pipe.sem = (pnif, semEngine, multi) => request("sem", { pnif:String(pnif), semEngine: semEngine||"aowl", multi: multi||null });
+  // Same check, plus the modules a LIVE SESSION has to resolve when it loads the
+  // program: `{ snif, diags, mods }`, where `mods` is framed for aowli's VFS.
+  // A one-shot run does not need them (the tree-walker resolves lazily); a
+  // session loads eagerly and dies without them. See framedStdModules.
+  pipe.sessionSem = (pnif, semEngine, multi) => request("sessionsem", { pnif:String(pnif), semEngine: semEngine||"aowl", multi: multi||null });
   // engine: "tree" | "vm" | "nifjs" (default "vm"). semEngine as above.
   pipe.run = (pnif, stdin, engine, semEngine, multi) => request("run", { pnif:String(pnif), stdin:String(stdin||""), engine: engine||"vm", semEngine: semEngine||"aowl", multi: multi||null });
   // run rung: execute on the tree-walker with the run emitter on, returning the

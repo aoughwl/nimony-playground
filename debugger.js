@@ -22,6 +22,20 @@
   .dbg-name{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.05em;
     text-transform:uppercase;color:var(--muted);padding:0 4px 0 4px;white-space:nowrap}
   .dbg-name svg{width:13px;height:13px;opacity:.85}
+  /* Replay | Live — a segmented switch in the drawer's header */
+  .dbg-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border-radius:8px;background:var(--bg);
+    border:1px solid var(--border);margin-right:4px;flex:none}
+  .dbg-bar .dbg-seg button{width:auto;height:24px;padding:0 10px 0 8px;gap:6px;border-radius:6px;color:var(--muted);
+    font-family:inherit;font-size:11px;font-weight:650;line-height:1;letter-spacing:.05em;text-transform:uppercase}
+  .dbg-bar .dbg-seg button svg{width:12px;height:12px}
+  .dbg-bar .dbg-seg button:hover{background:var(--panel2);color:var(--fg)}
+  .dbg-bar .dbg-seg button.on{background:var(--panel2);color:var(--fg);box-shadow:0 0 0 1px var(--border) inset}
+  .dbg-livedot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55;display:inline-block}
+  .dbg-seg button.on .dbg-livedot{opacity:1;color:var(--accent2)}
+  .dbg-replaybar,.dbg-livebar{display:contents}
+  .dbg-body[data-mode="live"] .dbg-replaybar,.dbg-body[data-mode="replay"] .dbg-livebar{display:none}
+  .dbg-replay,.dbg-live{flex:1;min-height:0;display:flex;flex-direction:column}
+  .dbg-body[data-mode="live"] .dbg-replay,.dbg-body[data-mode="replay"] .dbg-live{display:none}
   .dbg-close{margin-left:6px}
   .dbg-close svg{width:12px;height:12px}
   /* in the wide bottom drawer, lay the four panes as columns so short height
@@ -662,6 +676,28 @@
   // index.html) — not a floating window. ensureDock builds its UI into
   // #debuggerBody once; showDock/hideDock toggle the drawer.
   let built = false;
+  // ---- Replay | Live --------------------------------------------------------
+  let mode = "replay";
+  try{ if(localStorage.getItem("np-dbg-mode") === "live") mode = "live"; }catch(_){}
+  function setMode(m, user){
+    mode = (m === "live") ? "live" : "replay";
+    try{ localStorage.setItem("np-dbg-mode", mode); }catch(_){}
+    if(!els.body) return;
+    els.body.dataset.mode = mode;
+    els.body.querySelectorAll(".dbg-seg button").forEach(b=>{
+      const on = b.dataset.mode === mode;
+      b.classList.toggle("on", on); b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    if(mode === "live"){
+      clearEditor();                       // the replay's current-line bar means nothing live
+      if(window.AowliLive) window.AowliLive.activate();
+    }else{
+      if(window.AowliLive) window.AowliLive.deactivate();
+      // The flame canvas measured 0 wide while hidden; draw it at its real size.
+      if(steps.length){ renderAll(); }
+      else if(user && isVisible()) autoRun();
+    }
+  }
   function showDock(){
     const d = document.getElementById("debuggerDock"); if(d) d.hidden = false;
     const b = document.getElementById("dbgTabBtn"); if(b) b.classList.add("on");
@@ -680,9 +716,10 @@
   // Auto-capture once the debugger is visible: as soon as the engine is ready and
   // the active file is a .nim/.aowl, run the capture so the panel isn't empty.
   function autoRun(){
+    if(mode !== "replay") return;                           // Live never auto-captures
     let tries = 0;
     (function tick(){
-      if(!isVisible()) return;                              // closed meanwhile
+      if(!isVisible() || mode !== "replay") return;         // closed or switched meanwhile
       const nim = !window.AowliWorkspace || window.AowliWorkspace.activeIsNim();
       if(!nim){ setStatus("Open a .nim / .aowl file, then press Restart ↻ to debug it.", ""); return; }
       if(depsReady()){ start(); return; }
@@ -700,7 +737,16 @@
     const body = document.createElement("div"); body.className = "dbg-body";
     body.innerHTML =
       '<div class="dbg-bar">' +
-        '<span class="dbg-name">'+IC.bug+' Debugger</span>' +
+        // TWO WAYS TO LOOK AT A PROGRAM, ONE DRAWER. Replay records one run and
+        // lets you walk it in both directions; Live keeps the program running
+        // and lets you change it underneath its own state. Same panes, same
+        // place — so the second reads as a mode of the debugger rather than a
+        // separate feature hidden behind two buttons in the Output tab bar.
+        '<div class="dbg-seg" role="tablist" aria-label="Debugger mode">' +
+          '<button role="tab" data-mode="replay" data-tip="Replay — record one run, then step through it forwards and backwards">'+IC.rewind+'<span>Replay</span></button>' +
+          '<button role="tab" data-mode="live" data-tip="Live — keep the program running and change its code without losing its state">'+'<i class="dbg-livedot"></i><span>Live</span></button>' +
+        '</div>' +
+        '<span class="dbg-replaybar">' +
         '<span class="sep"></span>' +
         btn("restart", IC.restart, "Restart (re-capture)") +
         '<span class="sep"></span>' +
@@ -713,8 +759,11 @@
         navbtn("over", IC.over, "Step over") +
         navbtn("out", IC.out, "Step out") +
         '<span class="dbg-pos" id="dbgPos">—</span>' +
+        '</span>' +
+        '<span class="dbg-livebar" id="dbgLiveBar"></span>' +
         '<button class="dbg-close" data-btn="close" title="Close the debugger" data-tip="Close the debugger"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>' +
       '</div>' +
+      '<div class="dbg-replay">' +
       '<div class="dbg-tl">' +
         '<div class="dbg-flame" id="dbgFlame" tabindex="0"><canvas></canvas>' +
           '<div class="dbg-flame-tip" id="dbgFlameTip"></div>' +
@@ -733,8 +782,11 @@
         section("locals","Locals") +
         section("watches","Watch") +
         section("output","Output") +
-      '</div>';
+      '</div>' +
+      '</div>' +
+      '<div class="dbg-live" id="dbgLive"></div>';
     host.appendChild(body);
+    els.body = body;
     els.bar = body.querySelector(".dbg-bar");
     els.pos = body.querySelector("#dbgPos");
     els.status = body.querySelector("#dbgStatus");
@@ -759,7 +811,10 @@
     on("restart", start);
     on("cont-back", continueBack); on("back", stepBackInto); on("fwd", stepInto); on("cont", continueFwd);
     on("into", stepInto); on("over", stepOver); on("out", stepOut);
-    on("close", ()=>{ stop(); hideDock(); });
+    on("close", ()=>{ if(mode === "replay") stop(); hideDock(); });
+    body.querySelectorAll(".dbg-seg button").forEach(b=> b.addEventListener("click", ()=> setMode(b.dataset.mode, true)));
+    if(window.AowliLive) window.AowliLive.mount(body.querySelector("#dbgLiveBar"), body.querySelector("#dbgLive"));
+    setMode(mode, false);
     on("zoomin", ()=> zoomBy(1/ZOOM_STEP, viewCenter()));
     on("zoomout", ()=> zoomBy(ZOOM_STEP, viewCenter()));
     on("zoomfit", ()=> { fitView(); renderFlame(); });
@@ -777,7 +832,10 @@
   }
   function injectCss(){ if(document.getElementById("dbg-css")) return; const s=document.createElement("style"); s.id="dbg-css"; s.textContent=CSS; document.head.appendChild(s); }
 
-  window.AowliDebugger = { start, stop, toggle, show:()=>{ ensureDock(); showDock(); autoRun(); }, hide:hideDock, isVisible };
+  window.AowliDebugger = { start, stop, toggle, show:()=>{ ensureDock(); showDock(); autoRun(); }, hide:hideDock, isVisible,
+    // Open the drawer on its Live tab. The Live button in the header uses this.
+    showLive:()=>{ ensureDock(); showDock(); setMode("live", true); },
+    get mode(){ return mode; } };
   // The debugger drawer starts OPEN by default and AUTO-RUNS a capture (so it's
   // populated, not empty); it remembers if the user later closes it.
   window.AowliDebuggerBoot = function(){

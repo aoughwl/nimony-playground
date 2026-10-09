@@ -1,3 +1,49 @@
+// --- libm/libc shims v2 (tools/libm-shims.mjs) ---
+// See tools/libm-shims.mjs. The generated code calls these and the prelude in
+// this (older) bundle defines none of them.
+const FP_NAN = 0, FP_INFINITE = 1, FP_ZERO = 2, FP_SUBNORMAL = 3, FP_NORMAL = 4;
+const DBL_MIN = 2.2250738585072014e-308;
+function fpclassify(x) {
+  x = Number(x);
+  if (Number.isNaN(x)) return FP_NAN;
+  if (x === Infinity || x === -Infinity) return FP_INFINITE;
+  if (x === 0) return FP_ZERO;                        // covers -0 too
+  return Math.abs(x) < DBL_MIN ? FP_SUBNORMAL : FP_NORMAL;
+}
+const fpclassifyf = fpclassify;
+
+// `strtod` is what nimony's `parseFloat` lowers to. C contract: parse the
+// longest numeric prefix of the NUL-terminated string, write where parsing
+// stopped through `endPtr`, and answer 0 when nothing converted.
+function strtod(p, endPtr) {
+  p = Number(p);
+  let s = "";
+  for (let i = p; i - p < 1024 && _u8[i] !== 0; i++) s += String.fromCharCode(_u8[i]);
+  const m = /^[ \t\n\r\f\v]*[+-]?(Infinity|inf|nan|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/i.exec(s);
+  if (endPtr) mem.setI32(endPtr, p + (m ? m[0].length : 0));
+  if (!m) return 0;
+  const v = parseFloat(m[0].replace(/^[\s]*/, ""));
+  return Number.isNaN(v) ? (/nan/i.test(m[0]) ? NaN : 0) : v;
+}
+const strtof = strtod;
+
+// frexp/ldexp split a float into mantissa and exponent. The C signature writes
+// the exponent through a pointer, and the lowered code passes one, so this
+// takes an address and goes through `mem` like every other out-parameter here.
+function frexp(x, expPtr) {
+  if (x === 0 || !Number.isFinite(x)) { if (expPtr) mem.setI32(expPtr, 0); return x; }
+  let ex = Math.ceil(Math.log2(Math.abs(x)));
+  let m = x / Math.pow(2, ex);
+  // log2 rounding can land the mantissa just outside [0.5, 1); nudge it back.
+  while (Math.abs(m) >= 1) { m /= 2; ex++; }
+  while (Math.abs(m) < 0.5) { m *= 2; ex--; }
+  if (expPtr) mem.setI32(expPtr, ex);
+  return m;
+}
+const frexpf = frexp;
+function ldexp(x, e) { return x * Math.pow(2, e); }
+const ldexpf = ldexp;
+// --- libm/libc shims v2 --- end ---
 // aowlc.js — in-browser C export for the nimony playground.
 // typed .s.nif (globalThis.__c_src) -> [aowlhexer lowering via nim_js] -> .c.nif
 //   -> [aowlc printer] -> C source (globalThis.__c_out).
@@ -1232,7 +1278,27 @@ let _brk = 8;                                   // offset 0 reserved as nil
 
 // `allocFixed(n)` is the codegen's own storage for value aggregates (a C-stack
 // model: never freed), distinct from the Nim heap that sits on `mmap` below.
-function allocFixed(n){ const p=(_brk+7)&~7; _brk=p+n; _u8.fill(0,p,p+n); return p; }
+// --- allocFixed grows the heap (tools/grow-fixed-arena.mjs) ---
+// WAS: function allocFixed(n){ const p=(_brk+7)&~7; _brk=p+n; _u8.fill(0,p,p+n); return p; }
+// ...which bumped past the end of a 256 MiB buffer without ever growing it. See
+// tools/grow-fixed-arena.mjs. Same doubling rule as `mmap`, and the same
+// ceiling; past that it raises, because a silent overwrite of someone else's
+// memory is the one outcome worse than an error.
+function allocFixed(n){
+  const p=(_brk+7)&~7, need=p+n;
+  if(need > _ab.byteLength){
+    if(!_ab.resizable || need > _HEAPMAX)
+      throw new RangeError("out of linear memory: allocFixed wanted " + need +
+        " bytes of the " + _HEAPMAX + "-byte arena. This is the codegen's value-aggregate " +
+        "arena, which is never freed, so a big enough input exhausts it however large it is.");
+    let want=_ab.byteLength;
+    while(want < need) want *= 2;
+    if(want > _HEAPMAX) want = _HEAPMAX;
+    _ab.resize(want);
+  }
+  _brk=need; _u8.fill(0,p,need); return p;
+}
+// --- end allocFixed grows the heap (tools/grow-fixed-arena.mjs) ---
 
 // Page primitives for `system/osalloc.nim`: `mmap` hands the Nim allocator a
 // page-aligned, zero-filled region carved from the same buffer (MAP_FAILED = -1

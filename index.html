@@ -321,6 +321,31 @@
   /* tabs sit on the LEFT of the output header; the icon buttons are pushed right */
   .tabs{display:flex;gap:2px}
   .pane.out .label #outStatus{margin-left:8px}
+
+  /* ---- the live session: footer chip, Live toggle, drift ---- */
+  .sessstate{margin-left:8px;font:500 11px/1 ui-monospace,Consolas,monospace;
+    padding:3px 7px;border-radius:999px;border:1px solid var(--line,#2a3142);
+    color:var(--dim,#8b95a7);white-space:nowrap}
+  .sessstate.live{color:var(--accent2);border-color:color-mix(in srgb,var(--accent2) 40%,transparent);background:color-mix(in srgb,var(--accent2) 10%,transparent)}
+  .sessstate.pending{color:#c98a00;border-color:color-mix(in srgb,#c98a00 45%,transparent);background:color-mix(in srgb,#c98a00 10%,transparent)}
+  .sessstate.ended{color:#8fb4e8;border-color:#2c4468;background:rgba(70,110,180,.12)}
+  /* the generation counter flashes when new bytes land — the heartbeat that
+     tells you a swap happened without you having to press anything */
+  .sessstate .beat{display:inline-block;transition:none}
+  .sessstate.beat-on .beat{color:#eaf1fb;text-shadow:0 0 8px rgba(120,190,255,.8)}
+  .sessstate{cursor:pointer;text-transform:none;letter-spacing:0}
+  .actions button.liveTop{display:inline-flex;align-items:center;gap:8px;padding:0 15px;font-size:13px;font-weight:600;color:var(--muted)}
+  .actions button.liveTop:hover{color:var(--fg)}
+  .actions button.liveTop .dot{width:8px;height:8px;border-radius:50%;border:2px solid currentColor;box-sizing:border-box;flex:none}
+  .actions button.liveTop.on{color:var(--accent2)}
+  .actions button.liveTop.on .dot{background:currentColor;animation:liveTopPulse 1.8s ease-out infinite}
+  @keyframes liveTopPulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent2) 70%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  @media (prefers-reduced-motion: reduce){ .actions button.liveTop.on .dot{animation:none} }
+  @media (max-width:720px){ .actions button.liveTop .lbl{display:none} }
+  /* DRIFT. A symbol whose signature moved under a live caller. aowli has armed
+     the call side; this is where the editor says so. */
+  .sess-drift{text-decoration:underline wavy rgba(226,192,122,.9);text-underline-offset:3px}
+
   .pane.out .label #stdinBtn{margin-left:auto}
   .tabs button{font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:3px 10px;border-radius:6px;background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;font-family:inherit}
   .tabs button.active{color:var(--fg);background:var(--panel2);border-color:var(--border)}
@@ -685,8 +710,14 @@
     <button id="configBtn" data-tip="Configuration — pipeline, engine, formatting &amp; lints">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
+    <!-- GO LIVE. Runs the file and KEEPS it running, so an edit swaps into the
+         program without restarting it. Opens the debugger drawer's Live tab,
+         which shows what the running program holds and what each change did. -->
+    <button class="liveTop" id="liveTopBtn" data-tip="Go live — run this file and keep it running, so edits swap in without losing its state">
+      <i class="dot"></i><span class="lbl">Go live</span>
+    </button>
     <button class="run" id="runBtn" disabled data-tip="Compile & run — Ctrl/Cmd + Enter">
-      <svg viewBox="0 0 16 16"><path d="M4.5 3.2l8 4.8-8 4.8z" fill="currentColor"/></svg> Run <kbd>⌃⏎</kbd>
+      <svg viewBox="0 0 16 16"><path d="M4.5 3.2l8 4.8-8 4.8z" fill="currentColor"/></svg> <span id="runLabel">Run</span> <kbd>⌃⏎</kbd>
     </button>
   </div>
 </header>
@@ -779,6 +810,11 @@
         <button id="tabSym" data-view="sym">Symbols</button>
       </div>
       <span class="status" id="outStatus"></span>
+      <!-- THE SESSION FOOTER. Three states the page names out loud — stopped,
+           live, ended — plus the generation, which ticks every time new bytes
+           land in the running program. A swap that cannot land yet says
+           `pending` here rather than silently doing nothing. -->
+      <span id="sessState" class="sessstate" hidden></span>
       <button id="stdinBtn" class="paneBtn" data-tip="stdin"></button>
       <button id="wrapBtn" class="paneBtn" data-tip="Word wrap"></button>
       <button id="orientBtn" class="paneBtn" data-tip="Layout"></button>
@@ -994,22 +1030,6 @@
       stderr:{ write:function(s){ g.__aowli_err=(g.__aowli_err||"")+toStr(s); return true; } },
       exit:function(code){ var e=new Error("process.exit("+(code||0)+")"); e.__isExit=true; throw e; }
     };
-  // libm gap: the bundles' embedded runtime spells out most of <math.h> but
-  // deliberately skips `fpclassify` and the `FP_*` codes as "uncommon". They are
-  // not: std/math's `classify` importc's them, and nifbuilder's addFloatLit calls
-  // `classify` for EVERY float literal — so a bare `echo 8.0` died with
-  // "fpclassify is not defined" thrown out of the PARSER, with no diagnostic.
-  // These are the glibc codes, matching the runtime fix in nimony-js.
-  if(typeof g.fpclassify === "undefined"){
-    g.FP_NAN = 0; g.FP_INFINITE = 1; g.FP_ZERO = 2; g.FP_SUBNORMAL = 3; g.FP_NORMAL = 4;
-    g.fpclassify = function(x){
-      if(Number.isNaN(x)) return 0;
-      if(x === Infinity || x === -Infinity) return 1;
-      if(x === 0) return 2;                                   // covers -0
-      return Math.abs(x) < 2.2250738585072014e-308 ? 3 : 4;
-    };
-    g.fpclassifyf = g.fpclassify;
-  }
 })();
 // Shared client-side options — the curly-brace toggle lives here so parser.js /
 // engine.js pick it up without any coupling to the header UI. The `sem` field
@@ -1021,7 +1041,7 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
 </script>
 <!-- ?v= cache-busts the hand-written glue so fixes take effect without a hard
      refresh (the big bundles are fetched separately and change rarely). -->
-<script src="examples.js?v=6"></script>
+<script src="examples.js?v=7"></script>
 <!-- multi-file IDE layer: workspace VFS, docked explorer, git clone, std
      browsing, and the time-travel debugger -->
 <script src="winkit.js?v=2"></script>
@@ -1029,7 +1049,8 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
 <script src="gitclone.js?v=3"></script>
 <script src="stdmount.js?v=3"></script>
 <script src="explorer.js?v=11"></script>
-<script src="debugger.js?v=10"></script>
+<script src="live.js?v=1"></script>
+<script src="debugger.js?v=11"></script>
 <script src="pipeline.js?v=15"></script>
 <script src="engine.js?v=11"></script>
 <script src="parser.js?v=10"></script>
@@ -1044,6 +1065,10 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
 <script src="assemble.js?v=2"></script>
 <script src="offline.js?v=2"></script>
 <script src="format.js?v=1"></script>
+<!-- The LIVE SESSION: an interpreter that stays standing between edits, so a
+     change can be republished over the running program without losing its
+     state. session.js owns it; live.js (the debugger's Live tab) shows it. -->
+<script src="session.js?v=3"></script>
 <script>
 (function(){
   const $ = s => document.querySelector(s);
@@ -1170,7 +1195,40 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     });
   }
   document.querySelectorAll(".pane.out .tabs button").forEach(b=>
-    b.addEventListener("click",()=>selectTab(b.dataset.view)));
+    b.addEventListener("click",()=>{
+      selectTab(b.dataset.view);
+    }));
+
+  // ---- the live session: the Live toggle and the footer chip ----------------
+  // Everything the session itself does lives in session.js; this is only the
+  // chrome that reports it. The three states are named rather than colour-coded
+  // alone, because "why is my edit not taking effect" is answered by the word.
+  (function wireSession(){
+    const S = window.AowliSession; if(!S) return;
+    // Everything a live session SHOWS is in the debugger drawer's Live tab
+    // (live.js), which also keeps this chip and the header button current.
+    // This only routes clicks there, and keeps the old footer heartbeat: the
+    // generation flashes when a change lands without anyone pressing anything.
+    const chip = $("#sessState");
+    let beatTimer = null, lastGen = -1;
+    S.on("state", ()=>{
+      if(S.state === "stopped"){ lastGen = -1; return; }
+      if(S.gen !== lastGen && lastGen >= 0){
+        chip.classList.add("beat-on");
+        clearTimeout(beatTimer);
+        beatTimer = setTimeout(()=>chip.classList.remove("beat-on"), 420);
+      }
+      lastGen = S.gen;
+    });
+    S.on("out", (e)=>{ if(e.text) print(esc(e.text)); });
+    const openLive = ()=>{ if(window.AowliDebugger && window.AowliDebugger.showLive) window.AowliDebugger.showLive(); };
+    chip.addEventListener("click", openLive);
+    $("#liveTopBtn").addEventListener("click", async ()=>{
+      openLive();
+      // Stopped: going live means starting. Already live: the drawer is the answer.
+      if(S.state === "stopped" && window.AowliLive) await window.AowliLive.start();
+    });
+  })();
 
   // ---- source-pane tabs (Stages | Export) ----
   // The four compilation-tower stages (Source / Parsed / Typed / Run) collapse into
@@ -1552,6 +1610,15 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
             semDiags.map(d=>'  '+(d.line>0?d.line+':'+d.col:'⚠')+'  '+esc(d.message)).join('\n')
         : '<span class="sys">no typed NIF (the program did not type-check).</span>';
       stageBytes.snif = snif ? snif.length : null;
+      // THE LIVE HOOK. The typed .s.nif this check just produced is exactly what
+      // a running session needs in order to become the new version of itself, so
+      // offer it. `offer` does nothing unless a session is standing AND Live is
+      // armed AND the bytes actually moved — the cost when the feature is off is
+      // one comparison, and a program that does not type-check is never offered.
+      // ...and only when the file on screen IS the running program: a second
+      // open file must never be swapped in over the first one's state.
+      if(snif && !nErr && window.AowliSession && (!window.AowliLive || window.AowliLive.ownsActiveFile()))
+        window.AowliSession.offer(snif);
       if(curSrcView==="stages" && curStage==="snif") updateStageMeta();
       semStatus(nErr
         ? '<span class="err">● '+nErr+' type '+(nErr===1?'error':'errors')+'</span>'
@@ -1583,9 +1650,125 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     runBtn.classList.toggle("running", on);
     runBtn.classList.toggle("stopmode", on);
     runBtn.innerHTML = on ? STOP_HTML : RUN_HTML;
+    if(!on && window.AowliLive && window.AowliLive.syncHeader) window.AowliLive.syncHeader();
     if(on){ runBtn.disabled = false; runBtn.setAttribute("data-tip","Stop the running program"); }
     else updateRunState();
   }
+  // ---- RUN, AGAINST A STANDING INTERPRETER --------------------------------
+  //
+  // Run has always been one-shot: boot a worker, execute the program to the end,
+  // collect stdout, throw the whole thing away. That is the right model for a
+  // program you are testing and the wrong one for the thing this project is
+  // actually about — an interpreter you can change while it is running.
+  //
+  // So: Go live starts a STANDING interpreter from the buffer and
+  // runs its top level. After that, Run APPENDS — only the top-level statements
+  // you added since last time execute, against globals that never went away —
+  // and edits in between do not wait for a Run at all, because every clean
+  // type-check republishes itself into that same interpreter through `offer`.
+  // That is why the generation counter moves while you type. `scratch/liveDemo`
+  // is the file that walks through it.
+  //
+  // WHAT IT DELIBERATELY DOES NOT DO. It does not use the engine picker: a
+  // session is the faithful tree-walking interpreter, because a bytecode image
+  // and a transpiled JS module have no module to republish. It does not read
+  // stdin, because a standing session has no new stdin to read. And Run is
+  // untouched whenever no session is standing, which is every first visit —
+  // nothing about the ordinary path changed.
+  async function compileBuffer(){
+    const src = window.AowliEditor.getValue();
+    const bad = (window.AowliCore && window.AowliCore.checkImports) ? window.AowliCore.checkImports(src) : [];
+    if(bad.length){
+      print('<span class="err">unavailable import:\n'+esc(bad.map(b=>"  "+b.line+":"+b.col+"  "+b.message).join("\n"))+'</span>');
+      return null;
+    }
+    const { nif, diags: synDiags } = window.AowliParser.parseFull(src, "in.nim");
+    if(synDiags && synDiags.length){
+      print('<span class="err">syntax error: '+esc(synDiags[0].message)+' (line '+synDiags[0].line+')</span>');
+      return null;
+    }
+    // A SESSION NEEDS MORE THAN A `.s.nif`. It loads eagerly, so every module the
+    // program's symbols name has to be in the VFS before it starts —
+    // `sessionSem` returns those alongside the check. See `framedStdModules` in
+    // worker.js for why a one-shot Run gets away without them.
+    let semEng = (window.AowliOpts && window.AowliOpts.sem === "nim") ? "nim" : "aowl";
+    const multi = window.__aowliBuildMulti ? window.__aowliBuildMulti(src) : null;
+    if(multi && multi.modules) semEng = "nim";
+    const r = await window.AowliPipe.sessionSem(nif, semEng, multi);
+    if(!r.snif){
+      const msg = (r.diags && r.diags.length)
+        ? r.diags.map(d=>"  "+(d.line>0?d.line+":"+d.col:"⚠")+"  "+d.message).join("\n")
+        : "the program did not type-check.";
+      print('<span class="err">semantic error:\n'+esc(msg)+'</span>');
+      return null;
+    }
+    return r;
+  }
+
+  window.__aowliSessionRun = (fresh)=>sessionRun(fresh);
+  async function sessionRun(startFresh){
+    const S = window.AowliSession;
+    if(!(window.AowliParser && window.AowliParser.ready && window.AowliSem && window.AowliSem.ready)){
+      print('<span class="err">the toolchain is still loading…</span>'); return;
+    }
+    ensureOutputVisible();
+    const built = await compileBuffer();
+    if(!built) return;
+    const t0 = performance.now();
+    // START IN THE REPL SHAPE, THEN APPEND ONCE.
+    //
+    // `loadHot(runInit = true)` runs the top level through `run`, which records
+    // nothing about HOW MANY statements it ran — so the next append starts from
+    // statement 0 and re-runs every one of them, re-executing `var hits = 0`
+    // and resetting the state the session exists to keep. The symptom is
+    // exquisitely misleading: the new code is live (the edited proc really does
+    // run) and the counter is back to 1, so it looks like the swap worked and
+    // the state did not survive, when in fact the state survived and was then
+    // overwritten by its own initializer.
+    //
+    // `swapHotAppend` is the verb that counts. Publishing WITHOUT running
+    // (`runInit: false`) and then appending from statement 0 executes exactly
+    // the same statements exactly once, and leaves `ranTo` at the end — so the
+    // NEXT Run appends only what was added. Two verbs instead of one, and the
+    // one they replace could not have kept the number.
+    let r;
+    if(startFresh){
+      const boot = await S.start(built.snif, { runInit: false, mode: "script",
+                                               fromBuffer: true, mods: built.mods || "" });
+      if(!boot.ok){
+        print('<span class="err">'+esc(boot.err || "the session refused this program")+'</span>');
+        return;
+      }
+      r = await S.append(built.snif);
+      if(boot.out) r = Object.assign({}, r, { out: (boot.out || "") + (r.out || "") });
+    }else{
+      r = await S.append(built.snif);
+    }
+    const ms = (performance.now()-t0).toFixed(1);
+    // ONE print, CARRYING THE PROGRAM'S OWN OUTPUT.
+    //
+    // `print` REPLACES the pane; it does not append. Everything else in this
+    // file already knew that — the ordinary Run path builds one string out of
+    // stdout, stderr and the footer and prints it once. This path did not, and
+    // printed only the footer, which silently wiped the lines session.js had
+    // just emitted through `out`. The symptom was a session that started
+    // correctly, held its state correctly, and appeared to print nothing at all.
+    if(!r.ok){
+      print('<span class="err">'+esc(r.err || "the session refused this program")+'</span>');
+      return;
+    }
+    const parts = [];
+    if(r.out) parts.push(esc(r.out));
+    if(r.stderr) parts.push('<span class="err">'+esc(r.stderr)+'</span>');
+    parts.push('<span class="ok">— '+(startFresh
+        ? 'a live interpreter is holding this program'
+        : 'appended — everything above kept its value')+
+      ' · '+ms+' ms · <span class="sys">v'+(S.gen+1)+' · faithful interpreter, still standing</span></span>');
+    print(parts.join('\n'));
+    perf.textContent = ms+" ms";
+    scrollOutToBottom(true);
+  }
+
   async function run(){
     if(running){ if(window.AowliPipe) window.AowliPipe.stop(); return; }  // Stop
     if(!window.AowliEngine || !window.AowliEngine.ready){ print('<span class="err">Engine still loading…</span>'); return; }
@@ -1603,10 +1786,18 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     setRunning(true);
     const t0=performance.now();
     try{
+      // A SESSION IS STANDING, so Run means "run what I added" rather than
+      // "start over" — starting over would throw away the state that is the
+      // whole reason it is standing. Only for the file the session came from.
+      const S = window.AowliSession;
+      if(S && S.state !== "stopped" && (!window.AowliLive || window.AowliLive.ownsActiveFile())){
+        await sessionRun(false);
+        return;
+      }
       let res=await window.AowliEngine.run({ source: window.AowliEditor.getValue(), stdin: currentStdin(), engine: engineMode });
       // The in-browser interpreters run on a fixed bump heap with no collector, so
-      // even a recursive fib(20) exhausts it. Native JS has no fixed heap: rerun
-      // there once, and say so, instead of handing a first-time visitor an OOM.
+      // a recursive fib(30) exhausts it. Native JS has no fixed heap: rerun there
+      // once, and say so, instead of handing a first-time visitor an OOM.
       let oomNote = "";
       if(res.oom && engineMode !== "nifjs"){
         const again = await window.AowliEngine.run({ source: window.AowliEditor.getValue(), stdin: currentStdin(), engine: "nifjs" });
@@ -1625,7 +1816,12 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       const label = res.engine==="nifjs" ? 'Native JS'
                   : res.engine==="vm" ? 'Bytecode VM'
                   : res.engine==="tree" ? 'tree-walk' : '';
-      const fb = res.fellBack ? ' — nifjs fell back'+(res.fallbackReason?' ('+esc(res.fallbackReason)+')':'') : '';
+      // WHICH engine fell back matters: Native JS falls back when it cannot
+      // transpile a node, the Bytecode VM when aowli itself aborts. Naming the
+      // wrong one is how "I picked the VM and got tree-walk" stayed a mystery.
+      const from = res.fallbackFrom==="vm" ? 'the Bytecode VM'
+                : res.fallbackFrom==="nifjs" ? 'Native JS' : 'the fast path';
+      const fb = res.fellBack ? ' — '+from+' fell back'+(res.fallbackReason?' ('+esc(res.fallbackReason)+')':'') : '';
       const eng = label ? ' · <span class="sys">'+label+fb+'</span>' : '';
       parts.push('<span class="'+(res.oom?'err':'ok')+'">— exit '+(res.exitCode|0)+' · '+ms+' ms'+eng+'</span>');
       print(parts.join('\n')); perf.textContent=ms+" ms"; scrollOutToBottom(true);
@@ -1645,7 +1841,7 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
   try{ const e = localStorage.getItem("np-engine"); if(e==="vm"||e==="tree"||e==="nifjs") engineMode = e; }catch(_){}
   engineSel.value = engineMode;
   const ENGINE_DESC = {
-    vm:   "Bytecode VM — the faithful nimony interpreter, compiled to a tight bytecode dispatch loop. The default.",
+    vm:   "Bytecode VM — the faithful nimony interpreter, compiled to a tight bytecode dispatch loop, "+"and the default. It compiles the whole import closure before it runs a single instruction, "+"so it pays about half a second up front and then runs roughly 3x faster than the tree-walker: "+"measured here, fib(22) takes 3.5s on the VM and 10.5s on the tree-walker, while a seven-line "+"program takes 0.57s against 0.04s. Small program: pick another. Real work: pick this.",
     tree: "Tree-walk — the reference interpreter; it walks the typed program node by node. Slowest, most faithful.",
     nifjs:"Native JS — transpiles your program to JavaScript (nifjs) so the browser JIT-compiles it: near-native speed, no fixed heap. A program using something nifjs doesn't support yet falls back to the interpreter automatically."
   };
@@ -2194,6 +2390,7 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     const shared=(location.hash||"").match(/[#&]c=([^&]+)/);
     const sharedCode=shared?decodeShare(shared[1]):null;
     const restored = W.load();
+    if(restored) addLiveDemoOnce(W);
     if(sharedCode!=null){
       const p = W.addProject({ name:"shared", kind:"user", files:{ "main.nim": sharedCode } });
       W.openFile(p.id, "main.nim", true);
@@ -2206,11 +2403,36 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
       seedDemo(W);
     }
   }
+  // `seedDemo` only runs on an EMPTY workspace, so anyone who visited before
+  // `liveDemo.nim` existed restores a `scratch` that never gets it. Add it once
+  // to a restored scratch; the flag means deleting it afterwards sticks.
+  function addLiveDemoOnce(W){
+    const FLAG = "np-seeded-livedemo";
+    try{ if(localStorage.getItem(FLAG)) return; }catch(_){ return; }
+    const p = W.projectByName("scratch");
+    if(p && window.PLAYGROUND_LIVE_DEMO && W.readFile(p.id, "liveDemo.nim") == null)
+      W.addFile(p.id, "liveDemo.nim", window.PLAYGROUND_LIVE_DEMO);
+    try{ localStorage.setItem(FLAG, "1"); }catch(_){}
+  }
   function seedDemo(W){
     const body = (window.PLAYGROUND_DEMO && window.PLAYGROUND_DEMO.trim())
       ? window.PLAYGROUND_DEMO : 'echo "hello, aoughwl"\n';
-    const p = W.addProject({ name:"scratch", kind:"user", files:{ "helloWorld.nim": body } });
+    // TWO FILES, NOT ONE. `helloWorld.nim` shows the toolchain — parser, type
+    // checker and interpreter, all in this tab. `liveDemo.nim` shows what the
+    // toolchain is FOR: an interpreter that stays standing between edits, so
+    // changing a program does not mean restarting it. That is the claim the
+    // whole project rests on and until now the only place you could see it was
+    // inside a game, which made it look like a game feature.
+    //
+    // They are separate files on purpose: the multi-module semcheck only
+    // engages for modules that actually import each other (see `buildMulti`),
+    // so a second file beside the first costs the first nothing.
+    const p = W.addProject({ name:"scratch", kind:"user", files:{
+      "helloWorld.nim": body,
+      "liveDemo.nim": window.PLAYGROUND_LIVE_DEMO || "",
+    } });
     W.openFile(p.id, "helloWorld.nim", true);
+    try{ localStorage.setItem("np-seeded-livedemo", "1"); }catch(_){}
     if(window.AowliTabs && window.AowliTabs.touch) window.AowliTabs.touch(W.activeRef);
   }
   if(window.AowliEngine&&window.AowliEngine.ready) window.__nifiEngineReady(true);

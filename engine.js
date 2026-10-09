@@ -117,7 +117,7 @@
       for(const path of W.fileList(p.id))
         if(/\.(nim|aowl)$/.test(path)) sources.push({ absPath: W.absPath({projectId:p.id, path}), content: W.readFile(p.id, path) });
     }
-    if(sources.length <= 1) return null;   // ≤1 user module ⇒ no cross-file resolution
+    if(!sources.length) return null;
     const mainAbs = W.activeAbsPath();
     // The multi-module driver sems modules IN DEPENDENCY ORDER (a leaf is checked
     // before anything that imports it), so topologically sort by their import
@@ -145,6 +145,14 @@
       for(const d of depsOf(abs)) visit(d);
       inStack.delete(abs); seen.add(abs); order.push(abs);
     })(mainAbs);
+    // ≤1 module IN THE CLOSURE ⇒ nothing to resolve across files, so keep the
+    // single-module checker. This used to count every file in every open
+    // project, which meant that merely HAVING a second file — a second scratch
+    // buffer, or the other modules of a cloned repo —
+    // silently moved the whole session from aowlsem to nimsem for a program
+    // that imports nothing of its own. The closure is the honest measure: it is
+    // exactly the set this check would have to resolve.
+    if(order.length <= 1) return null;
     // Only the modules REACHABLE from the active file are checked — a 600-file
     // cloned repo must not parse all 600 on every keystroke. Unreferenced files are
     // simply not part of this compilation. (order already holds just the closure.)
@@ -203,7 +211,7 @@
       return { stdout:"", stderr:"semantic error:\n"+msg+why, exitCode:1, diags:m.diags||[],
                multiCrash:m.multiCrash||"" };
     }
-    return { stdout:m.stdout||"", stderr:m.stderr||"", exitCode:m.exitCode|0, diags:m.diags||[], engine:m.engine, oom:!!m.oom, fellBack:!!m.fellBack, fallbackReason:m.fallbackReason||"" };
+    return { stdout:m.stdout||"", stderr:m.stderr||"", exitCode:m.exitCode|0, diags:m.diags||[], engine:m.engine, oom:!!m.oom, fellBack:!!m.fellBack, fallbackFrom:m.fallbackFrom||"", fallbackReason:m.fallbackReason||"" };
   }
 
   window.AowliCore = { compileAndRun, checkImports };
