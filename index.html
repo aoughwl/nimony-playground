@@ -1603,9 +1603,21 @@ if(!("sem" in window.AowliOpts)) window.AowliOpts.sem = "nim";
     setRunning(true);
     const t0=performance.now();
     try{
-      const res=await window.AowliEngine.run({ source: window.AowliEditor.getValue(), stdin: currentStdin(), engine: engineMode });
+      let res=await window.AowliEngine.run({ source: window.AowliEditor.getValue(), stdin: currentStdin(), engine: engineMode });
+      // The in-browser interpreters run on a fixed bump heap with no collector, so
+      // even a recursive fib(20) exhausts it. Native JS has no fixed heap: rerun
+      // there once, and say so, instead of handing a first-time visitor an OOM.
+      let oomNote = "";
+      if(res.oom && engineMode !== "nifjs"){
+        const again = await window.AowliEngine.run({ source: window.AowliEditor.getValue(), stdin: currentStdin(), engine: "nifjs" });
+        if(!again.oom && (again.exitCode|0) === 0){
+          oomNote = '<span class="sys">The '+(engineMode==="vm"?"Bytecode VM":"tree-walk")+' ran out of its fixed in-browser heap, so this ran on Native JS instead.</span>';
+          res = again;
+        }
+      }
       const ms=(performance.now()-t0).toFixed(1);
       const parts=[];
+      if(oomNote) parts.push(oomNote);
       if(res.stdout) parts.push(esc(res.stdout));
       if(res.stderr) parts.push('<span class="err">'+esc(res.stderr)+'</span>');
       // which engine actually ran. If Native JS was picked but the program used
