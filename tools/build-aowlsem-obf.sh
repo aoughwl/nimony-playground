@@ -58,6 +58,7 @@ awk -v AF="$AF" -v FF="$FF" -v KF="$KF" '
   echo 'var fopen = (typeof fopen !== "undefined") ? fopen : function(){ return 0; };'
 } > "$BUNDLE"
 cat "$JSFFI/runtime.js" >> "$BUNDLE"; echo >> "$BUNDLE"
+cat "$HOME/nimony-playground/tools/libc-shims.js" >> "$BUNDLE"; echo >> "$BUNDLE"   # strtod etc. (see that file)
 cat "$AF" "$FF" "$KF" >> "$BUNDLE"
 rm -f "$AF" "$FF" "$KF"
 echo "   bundle bytes: $(wc -c < "$BUNDLE")"
