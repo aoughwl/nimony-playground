@@ -60,6 +60,22 @@ function _zero(p, n){ _chk("zero-fill", p, n); _u8.fill(0, p, p + n); }
 // `allocFixed(n)` is the codegen's own storage for value aggregates (a C-stack
 // model: never freed), distinct from the Nim heap that sits on `mmap` below.
 // It has no way to report failure to its caller, so exhaustion raises.
+// THE CLEAN WINDOW. [_cleanLo, _cleanHi) is known zero and always lies at or above
+// `_brk`. allocFixed is called once per value temporary — measured 2026-10-09 on
+// the browser aowlsem check of a std/sets program: 4,045,250 calls averaging 14
+// bytes, and the per-call `fill` was 16% of the whole check. Zeroing 256 KB ahead
+// of the break in one fill and handing out of it makes the common call a compare.
+// The heap is SHARED across bundles and runs (`__leng_ab`), so nothing starts
+// clean: the window opens empty every run.
+let _cleanLo = 0, _cleanHi = 0;
+const _CLEAN_AHEAD = 1 << 18;
+function _takeClean(p, end){
+  // [p, end) is being handed out: the window keeps only what lies above it.
+  if (end > _cleanLo && p < _cleanHi) {
+    if (p <= _cleanLo) _cleanLo = end; else _cleanHi = p;
+    if (_cleanLo >= _cleanHi) _cleanLo = _cleanHi = 0;
+  }
+}
 function allocFixed(n){
   const p = (_brk + 7) & ~7, end = p + n;
   if (!_growTo(end))
@@ -67,7 +83,16 @@ function allocFixed(n){
       "leng: out of linear memory (allocFixed " + n + " bytes at " + p +
       ", ceiling " + _HEAPMAX + ")");
   _brk = end;
-  _zero(p, n);
+  if (p < _cleanLo || end > _cleanHi) {
+    // refill the window from p: at least n bytes, up to _CLEAN_AHEAD, never past
+    // the current buffer (growing for zeroes alone would only cost memory).
+    let hi = p + Math.max(n, _CLEAN_AHEAD);
+    if (hi > _ab.byteLength) hi = Math.max(end, _ab.byteLength);
+    _zero(p, hi - p);
+    _cleanLo = end; _cleanHi = hi;
+  } else {
+    _cleanLo = end;
+  }
   return p;
 }
 
@@ -115,7 +140,8 @@ function mmap(adr, len, prot, flags, fildes, off){
   const end = p + need;
   if (!_growTo(end)) return -1;                  // MAP_FAILED at the ceiling
   _brk = end;
-  _zero(p, need);                                // MAP_ANONYMOUS: zero-filled
+  if (p >= _cleanLo && end <= _cleanHi) _takeClean(p, end);   // already zero
+  else { _takeClean(p, end); _zero(p, need); }   // MAP_ANONYMOUS: zero-filled
   return p;
 }
 function munmap(adr, len){
